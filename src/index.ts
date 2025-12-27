@@ -39,7 +39,7 @@ Commands:
 Options:
   -o, --output <path>  Output directory (for dump command)
   -c, --count          Show session counts in list
-  -f, --full           Include assistant responses (default: user only)
+  -u, --user-only      Include only user messages (default: full conversation)
   -v, --verbose        Show debug output
   -h, --help           Show this help message
 
@@ -210,7 +210,7 @@ async function dumpProject(projectIndex: number, outputPath?: string, options: {
   }
 }
 
-const VALID_FLAGS = ['--verbose', '-v', '--help', '-h', '--all', '--count', '-c', '--output', '-o', '--full', '-f'];
+const VALID_FLAGS = ['--verbose', '-v', '--help', '-h', '--all', '--count', '-c', '--output', '-o', '--user-only', '-u'];
 const VALID_COMMANDS = ['list', 'dump', 'clean'];
 
 async function main() {
@@ -228,8 +228,8 @@ async function main() {
 
   const showAll = args.includes('--all');
   const showCount = args.includes('--count') || args.includes('-c');
-  const includeFull = args.includes('--full') || args.includes('-f');
-  const markdownOptions = { includeAssistant: includeFull };
+  const userOnly = args.includes('--user-only') || args.includes('-u');
+  const markdownOptions = { includeAssistant: !userOnly };
 
   // Parse --output / -o
   let outputPath: string | undefined;
