@@ -105,6 +105,39 @@ function buildSession(messages: ClaudeMessage[], sessionId: string): Session | n
   };
 }
 
+export async function countClaudeSessions(projectPath: string): Promise<number> {
+  const claudeProjectDir = getClaudeProjectDir(projectPath);
+
+  if (!(await exists(claudeProjectDir))) {
+    return 0;
+  }
+
+  try {
+    const files = await fs.readdir(claudeProjectDir);
+    const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
+    let count = 0;
+
+    for (const file of jsonlFiles) {
+      const filePath = path.join(claudeProjectDir, file);
+      const sessionId = path.basename(file, '.jsonl');
+
+      try {
+        const messages = await parseJsonlFile(filePath);
+        const session = buildSession(messages, sessionId);
+        if (session) {
+          count++;
+        }
+      } catch {
+        // Skip invalid sessions
+      }
+    }
+
+    return count;
+  } catch {
+    return 0;
+  }
+}
+
 export async function copyClaudeLogs(
   targetDir: string,
   projectPath: string,

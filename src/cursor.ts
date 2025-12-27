@@ -120,6 +120,40 @@ function parseBubbleKey(key: string): { composerId: string; bubbleId: string } |
   return { composerId: match[1], bubbleId: match[2] };
 }
 
+export function countCursorSessions(projectPath: string): number {
+  const dbPath = getCursorDbPath();
+
+  let db: Database.Database;
+  try {
+    db = new Database(dbPath, { readonly: true });
+  } catch (e) {
+    return 0;
+  }
+
+  try {
+    const escapedPath = projectPath.replace(/'/g, "''");
+    const bubbleRows = db
+      .prepare(
+        `SELECT key FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%${escapedPath}%'`
+      )
+      .all() as KVRow[];
+
+    const composerIds = new Set<string>();
+    for (const row of bubbleRows) {
+      const parsed = parseBubbleKey(row.key);
+      if (parsed) {
+        composerIds.add(parsed.composerId);
+      }
+    }
+
+    return composerIds.size;
+  } catch {
+    return 0;
+  } finally {
+    db.close();
+  }
+}
+
 export async function copyCursorLogs(
   targetDir: string,
   projectPath: string,

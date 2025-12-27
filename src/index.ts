@@ -2,8 +2,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { copyClaudeLogs } from './claude.js';
-import { copyCursorLogs } from './cursor.js';
+import { copyClaudeLogs, countClaudeSessions } from './claude.js';
+import { copyCursorLogs, countCursorSessions } from './cursor.js';
 import { canAccessPath, expandProjects, isKnownProject, listProjects } from './projects.js';
 import {
   ensureDir,
@@ -97,6 +97,14 @@ async function printProjectList(showAll: boolean) {
     const idx = String(i + 1).padStart(maxIdxWidth, ' ');
     const dateStr = formatDate(p.lastActivity);
 
+    // Get session count
+    let sessionCount = 0;
+    if (p.tool === 'Claude') {
+      sessionCount = await countClaudeSessions(p.path);
+    } else if (p.tool === 'Cursor') {
+      sessionCount = countCursorSessions(p.path);
+    }
+
     // For remote projects, show hostname:path format
     // For inaccessible local projects, show (missing)
     let displayPath = shortenPath(p.path);
@@ -110,7 +118,8 @@ async function printProjectList(showAll: boolean) {
       }
     }
 
-    log(`  ${idx}. ${dateStr}  ${displayPath}  [${p.tool}]${statusTag}`);
+    const sessionInfo = sessionCount > 0 ? ` (${sessionCount})` : '';
+    log(`  ${idx}. ${dateStr}  ${displayPath}  [${p.tool}]${sessionInfo}${statusTag}`);
   }
 
   if (hasMore) {
