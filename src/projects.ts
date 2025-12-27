@@ -272,13 +272,7 @@ function getCursorProjects(): Map<string, CursorProject> {
   return projects;
 }
 
-export interface ListProjectsOptions {
-  includeInaccessible?: boolean;
-}
-
-export async function listProjects(options: ListProjectsOptions = {}): Promise<Project[]> {
-  const { includeInaccessible = false } = options;
-
+export async function listProjects(): Promise<Project[]> {
   const claudeProjects = await getClaudeProjects();
   const cursorProjects = getCursorProjects();
 
@@ -293,12 +287,6 @@ export async function listProjects(options: ListProjectsOptions = {}): Promise<P
     // Determine if this is a remote project
     const isRemote = cursor?.isRemote || false;
     const remoteHost = cursor?.remoteHost;
-
-    // Filter out inaccessible paths unless explicitly requested
-    if (!includeInaccessible) {
-      const accessible = await exists(p);
-      if (!accessible) continue;
-    }
 
     // Get the most recent activity from either tool
     let lastActivity = new Date(0);

@@ -70,8 +70,7 @@ function shortenPath(fullPath: string): string {
 }
 
 async function printProjectList(showAll: boolean) {
-  // Always include inaccessible (missing/remote) projects in list
-  const allProjects = await listProjects({ includeInaccessible: true });
+  const allProjects = await listProjects();
 
   if (allProjects.length === 0) {
     log('No projects found in Claude Code or Cursor.');
@@ -146,15 +145,49 @@ async function printProjectList(showAll: boolean) {
   log('\nUsage: npx ailog dump <N>');
 }
 
-async function dumpProject(projectIndex: number, outputPath?: string, includeInaccessible = false) {
-  const projects = await listProjects({ includeInaccessible });
+async function dumpProject(projectIndex: number, outputPath?: string) {
+  const allProjects = await listProjects();
 
-  if (projectIndex < 1 || projectIndex > projects.length) {
-    console.error(`Error: Invalid project number. Use 1-${projects.length}`);
+  // Expand projects: each tool gets its own line (matching the list display)
+  const expandedProjects: Array<{
+    path: string;
+    tool: 'Claude' | 'Cursor';
+    isRemote: boolean;
+    remoteHost?: string;
+  }> = [];
+
+  for (const p of allProjects) {
+    if (p.hasClaude) {
+      expandedProjects.push({
+        path: p.path,
+        tool: 'Claude',
+        isRemote: p.isRemote,
+        remoteHost: p.remoteHost,
+      });
+    }
+    if (p.hasCursor) {
+      expandedProjects.push({
+        path: p.path,
+        tool: 'Cursor',
+        isRemote: p.isRemote,
+        remoteHost: p.remoteHost,
+      });
+    }
+  }
+
+  if (projectIndex < 1 || projectIndex > expandedProjects.length) {
+    console.error(`Error: Invalid project number. Use 1-${expandedProjects.length}`);
     process.exit(1);
   }
 
-  const project = projects[projectIndex - 1];
+  const selectedProject = expandedProjects[projectIndex - 1];
+
+  // Find the original project data
+  const project = allProjects.find(p => p.path === selectedProject.path);
+  if (!project) {
+    console.error(`Error: Project not found`);
+    process.exit(1);
+  }
   const username = getGitUsername();
   const userIdentifier = getUserIdentifier();
 
@@ -179,13 +212,14 @@ async function dumpProject(projectIndex: number, outputPath?: string, includeIna
 
   log('Starting ailog...');
   log(`Project: ${project.path}`);
+  log(`Tool: ${selectedProject.tool}`);
   log(`User: ${username}`);
   log(`Output: ${baseDir}/${userIdentifier}/`);
 
-  if (project.hasClaude) {
+  // Only copy logs for the selected tool
+  if (selectedProject.tool === 'Claude') {
     await copyClaudeLogs(userDir, project.path, username);
-  }
-  if (project.hasCursor) {
+  } else if (selectedProject.tool === 'Cursor') {
     await copyCursorLogs(userDir, project.path, username);
   }
 
@@ -229,7 +263,7 @@ async function main() {
       console.error('Error: dump requires a project number. Use "ailog list" first.');
       process.exit(1);
     }
-    await dumpProject(parseInt(numArg, 10), outputPath, showAll);
+    await dumpProject(parseInt(numArg, 10), outputPath);
     return;
   }
 
