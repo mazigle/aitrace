@@ -3,7 +3,8 @@ import path from 'node:path';
 
 import type { Session, SessionEntry } from './format.js';
 import { formatFilename, generateMarkdown } from './format.js';
-import { debug, ensureDir, exists, getHomeDir, log } from './utils.js';
+import { getClaudeProjectDir } from './paths.js';
+import { debug, ensureDir, exists, log } from './utils.js';
 
 interface ClaudeMessage {
   type: string;
@@ -13,11 +14,6 @@ interface ClaudeMessage {
   };
   timestamp?: string;
   sessionId?: string;
-}
-
-function encodeProjectPath(projectPath: string): string {
-  // Handle both Unix (/) and Windows (\) path separators
-  return projectPath.replace(/[/\\]/g, '-');
 }
 
 function extractTextContent(message: ClaudeMessage['message']): string | null {
@@ -100,9 +96,7 @@ export async function copyClaudeLogs(
   projectPath: string,
   username: string
 ): Promise<void> {
-  const homeDir = getHomeDir();
-  const encodedPath = encodeProjectPath(projectPath);
-  const claudeProjectDir = path.join(homeDir, '.claude', 'projects', encodedPath);
+  const claudeProjectDir = getClaudeProjectDir(projectPath);
   const destDir = path.join(targetDir, 'claude');
 
   if (!(await exists(claudeProjectDir))) {

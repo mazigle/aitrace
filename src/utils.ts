@@ -30,19 +30,6 @@ export function debug(msg: string): void {
   }
 }
 
-export type Platform = 'darwin' | 'linux' | 'win32';
-
-export function getPlatform(): Platform {
-  const p = process.platform;
-  if (p === 'darwin' || p === 'linux' || p === 'win32') return p;
-  // Fallback for other Unix-like systems
-  return 'linux';
-}
-
-export function getHomeDir(): string {
-  return process.env.HOME || process.env.USERPROFILE || '';
-}
-
 export function getGitUsername(): string {
   try {
     return execSync('git config user.name', { encoding: 'utf-8' }).trim();
@@ -54,4 +41,3 @@ export function getGitUsername(): string {
 export function slugifyPath(str: string): string {
   return str.toLowerCase().trim().replace(/\s+/g, '-');
 }
-

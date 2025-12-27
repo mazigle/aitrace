@@ -4,7 +4,8 @@ import path from 'node:path';
 
 import type { Session, SessionEntry } from './format.js';
 import { formatFilename, generateMarkdown } from './format.js';
-import { debug, ensureDir, exists, getHomeDir, getPlatform, log } from './utils.js';
+import { getCursorDbPath } from './paths.js';
+import { debug, ensureDir, exists, log } from './utils.js';
 
 interface Bubble {
   type: number; // 1 = user, 2 = assistant
@@ -23,20 +24,6 @@ interface ComposerData {
     bubbleId: string;
     type: number;
   }>;
-}
-
-function getStateDbPath(): string {
-  const homeDir = getHomeDir();
-  const platform = getPlatform();
-
-  switch (platform) {
-    case 'darwin':
-      return path.join(homeDir, 'Library', 'Application Support', 'Cursor', 'User', 'globalStorage', 'state.vscdb');
-    case 'linux':
-      return path.join(homeDir, '.config', 'Cursor', 'User', 'globalStorage', 'state.vscdb');
-    case 'win32':
-      return path.join(process.env.APPDATA || homeDir, 'Cursor', 'User', 'globalStorage', 'state.vscdb');
-  }
 }
 
 function queryDb(dbPath: string, sql: string): string {
@@ -162,7 +149,7 @@ export async function copyCursorLogs(
   projectPath: string,
   username: string
 ): Promise<void> {
-  const dbPath = getStateDbPath();
+  const dbPath = getCursorDbPath();
 
   if (!(await exists(dbPath))) {
     log('⚠️  Cursor state database not found');
