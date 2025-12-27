@@ -52,11 +52,8 @@ interface BubbleWithJson {
 function isValidBubble(obj: unknown): obj is Bubble {
   if (!obj || typeof obj !== 'object') return false;
   const b = obj as Record<string, unknown>;
-  return (
-    typeof b.composerMetadataId === 'string' &&
-    typeof b.bubbleId === 'string' &&
-    typeof b.text === 'string'
-  );
+  // Only require bubbleId and type - text is optional
+  return typeof b.bubbleId === 'string' && typeof b.type === 'number';
 }
 
 function buildSession(
