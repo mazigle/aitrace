@@ -12,6 +12,7 @@ export interface Project {
   hasClaude: boolean;
   hasCursor: boolean;
   isRemote: boolean;
+  remoteHost?: string;
   lastActivity: Date;
 }
 
@@ -23,6 +24,7 @@ interface ClaudeProject {
 interface CursorProject {
   path: string;
   isRemote: boolean;
+  remoteHost?: string;
   lastActivity: Date;
 }
 
@@ -72,17 +74,19 @@ async function getClaudeProjects(): Promise<Map<string, ClaudeProject>> {
 }
 
 // Parse URI and extract file path
-function parseUri(uri: string): { path: string; isRemote: boolean } | null {
+function parseUri(uri: string): { path: string; isRemote: boolean; remoteHost?: string } | null {
   // Check for SSH remote pattern: vscode-remote://ssh-remote%2B{host}/{path}
-  const sshMatch = uri.match(/^vscode-remote:\/\/ssh-remote%2B[^/]+(.+)$/);
+  const sshMatch = uri.match(/^vscode-remote:\/\/ssh-remote%2B([^/]+)(.+)$/);
   if (sshMatch) {
-    return { path: sshMatch[1], isRemote: true };
+    const host = decodeURIComponent(sshMatch[1]);
+    return { path: sshMatch[2], isRemote: true, remoteHost: host };
   }
 
   // Check for other remote patterns (wsl, dev-container, etc.)
-  const otherRemoteMatch = uri.match(/^vscode-remote:\/\/[^/]+(.+)$/);
+  const otherRemoteMatch = uri.match(/^vscode-remote:\/\/([^/]+)(.+)$/);
   if (otherRemoteMatch) {
-    return { path: otherRemoteMatch[1], isRemote: true };
+    const remoteType = otherRemoteMatch[1];
+    return { path: otherRemoteMatch[2], isRemote: true, remoteHost: remoteType };
   }
 
   // Check for file:// URI
@@ -186,7 +190,7 @@ function getCursorProjects(): Map<string, CursorProject> {
         const uriInfo = parseUri(rawUri);
         if (!uriInfo) continue;
 
-        const { path: filePath, isRemote } = uriInfo;
+        const { path: filePath, isRemote, remoteHost } = uriInfo;
 
         const projectRoot = extractProjectRoot(filePath);
         if (!projectRoot) continue;
@@ -199,10 +203,14 @@ function getCursorProjects(): Map<string, CursorProject> {
           projects.set(projectRoot, {
             path: projectRoot,
             isRemote: existing?.isRemote || isRemote,
+            remoteHost: remoteHost || existing?.remoteHost,
             lastActivity: timestamp || new Date(0),
           });
         } else if (isRemote && !existing.isRemote) {
           existing.isRemote = true;
+          if (remoteHost) {
+            existing.remoteHost = remoteHost;
+          }
         }
       }
     }
@@ -231,7 +239,7 @@ function getCursorProjects(): Map<string, CursorProject> {
         const uriInfo = parseUri(rawPath);
         if (!uriInfo) continue;
 
-        const { path: filePath, isRemote } = uriInfo;
+        const { path: filePath, isRemote, remoteHost } = uriInfo;
 
         const projectRoot = extractProjectRoot(filePath);
         if (!projectRoot) continue;
@@ -244,10 +252,14 @@ function getCursorProjects(): Map<string, CursorProject> {
           projects.set(projectRoot, {
             path: projectRoot,
             isRemote: existing?.isRemote || isRemote,
+            remoteHost: remoteHost || existing?.remoteHost,
             lastActivity: timestamp || new Date(0),
           });
         } else if (isRemote && !existing.isRemote) {
           existing.isRemote = true;
+          if (remoteHost) {
+            existing.remoteHost = remoteHost;
+          }
         }
       }
     }
@@ -280,6 +292,7 @@ export async function listProjects(options: ListProjectsOptions = {}): Promise<P
 
     // Determine if this is a remote project
     const isRemote = cursor?.isRemote || false;
+    const remoteHost = cursor?.remoteHost;
 
     // Filter out inaccessible paths unless explicitly requested
     if (!includeInaccessible) {
@@ -302,6 +315,7 @@ export async function listProjects(options: ListProjectsOptions = {}): Promise<P
       hasClaude: claudeProjects.has(p),
       hasCursor: cursorProjects.has(p),
       isRemote,
+      remoteHost,
       lastActivity,
     });
   }

@@ -4,7 +4,16 @@ import path from 'node:path';
 import { copyClaudeLogs } from './claude.js';
 import { copyCursorLogs } from './cursor.js';
 import { canAccessPath, isKnownProject, listProjects } from './projects.js';
-import { ensureDir, exists, formatDate, getGitUsername, getUserIdentifier, log, setVerbose } from './utils.js';
+import {
+  ensureDir,
+  exists,
+  formatDate,
+  formatRemoteInfo,
+  getGitUsername,
+  getUserIdentifier,
+  log,
+  setVerbose,
+} from './utils.js';
 
 const OUTPUT_DIR = 'ailog';
 const DEFAULT_LIST_LIMIT = 10;
@@ -69,37 +78,69 @@ async function printProjectList(showAll: boolean) {
     return;
   }
 
+  // Expand projects: each tool gets its own line
+  const expandedProjects: Array<{
+    path: string;
+    tool: 'Claude' | 'Cursor';
+    lastActivity: Date;
+    isRemote: boolean;
+    remoteHost?: string;
+  }> = [];
+
+  for (const p of allProjects) {
+    if (p.hasClaude) {
+      expandedProjects.push({
+        path: p.path,
+        tool: 'Claude',
+        lastActivity: p.lastActivity,
+        isRemote: p.isRemote,
+        remoteHost: p.remoteHost,
+      });
+    }
+    if (p.hasCursor) {
+      expandedProjects.push({
+        path: p.path,
+        tool: 'Cursor',
+        lastActivity: p.lastActivity,
+        isRemote: p.isRemote,
+        remoteHost: p.remoteHost,
+      });
+    }
+  }
+
   // --all flag controls count limit only
-  const projects = showAll ? allProjects : allProjects.slice(0, DEFAULT_LIST_LIMIT);
-  const hasMore = !showAll && allProjects.length > DEFAULT_LIST_LIMIT;
+  const displayProjects = showAll ? expandedProjects : expandedProjects.slice(0, DEFAULT_LIST_LIMIT);
+  const hasMore = !showAll && expandedProjects.length > DEFAULT_LIST_LIMIT;
 
   log('Projects:\n');
 
-  const maxIdxWidth = String(projects.length).length;
+  const maxIdxWidth = String(displayProjects.length).length;
 
-  for (let i = 0; i < projects.length; i++) {
-    const p = projects[i];
-    const tools: string[] = [];
-    if (p.hasClaude) tools.push('Claude');
-    if (p.hasCursor) tools.push('Cursor');
+  for (let i = 0; i < displayProjects.length; i++) {
+    const p = displayProjects[i];
 
     const accessible = await canAccessPath(p.path);
     const idx = String(i + 1).padStart(maxIdxWidth, ' ');
-    const shortPath = shortenPath(p.path);
-    const toolsStr = `[${tools.join(', ')}]`;
     const dateStr = formatDate(p.lastActivity);
 
-    // Show appropriate tag: remote (SSH), missing (deleted/bad decode), or nothing
+    // For remote projects, show hostname:path format
+    // For inaccessible local projects, show (missing)
+    let displayPath = shortenPath(p.path);
     let statusTag = '';
+
     if (!accessible) {
-      statusTag = p.isRemote ? ' (remote)' : ' (missing)';
+      if (p.isRemote && p.remoteHost) {
+        displayPath = formatRemoteInfo(p.remoteHost, p.path);
+      } else {
+        statusTag = ' (missing)';
+      }
     }
 
-    log(`  ${idx}. ${dateStr}  ${shortPath}  ${toolsStr}${statusTag}`);
+    log(`  ${idx}. ${dateStr}  ${displayPath}  [${p.tool}]${statusTag}`);
   }
 
   if (hasMore) {
-    log(`\n  ... ${allProjects.length - DEFAULT_LIST_LIMIT} more`);
+    log(`\n  ... ${expandedProjects.length - DEFAULT_LIST_LIMIT} more`);
   }
 
   log('\nUsage: ailog dump <N>');
