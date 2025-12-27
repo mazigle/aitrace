@@ -1,20 +1,33 @@
-import path from 'path';
+import path from 'node:path';
+
 import { copyDir, exists, getHomeDir, log } from './utils.js';
 
-export async function copyClaudeLogs(targetDir: string): Promise<void> {
-  const homeDir = getHomeDir();
+function encodeProjectPath(projectPath: string): string {
+  // /Users/donghyun/repo/ailog → -Users-donghyun-repo-ailog
+  return projectPath.replace(/\//g, '-');
+}
 
-  // Claude Code stores logs in ~/.claude/
-  const claudeDir = path.join(homeDir, '.claude');
+export async function copyClaudeLogs(
+  targetDir: string,
+  projectPath: string
+): Promise<void> {
+  const homeDir = getHomeDir();
+  const encodedPath = encodeProjectPath(projectPath);
+
+  const claudeProjectDir = path.join(
+    homeDir,
+    '.claude',
+    'projects',
+    encodedPath
+  );
   const destDir = path.join(targetDir, 'claude');
 
-  if (!(await exists(claudeDir))) {
-    log('⚠️  Claude Code logs not found');
+  if (!(await exists(claudeProjectDir))) {
+    log(`⚠️  Claude Code logs not found for: ${projectPath}`);
     return;
   }
 
   log('📋 Copying Claude Code logs...');
-  await copyDir(claudeDir, destDir);
+  await copyDir(claudeProjectDir, destDir);
   log('   Claude Code logs copied');
 }
-

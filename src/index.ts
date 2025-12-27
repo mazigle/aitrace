@@ -2,7 +2,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { copyClaudeLogs } from './claude.js';
-import { copyCursorLogs } from './cursor.js';
 import { ensureDir, exists, log } from './utils.js';
 
 const OUTPUT_DIR = 'ailog';
@@ -12,17 +11,15 @@ async function main() {
 
   if (args.includes('--help') || args.includes('-h')) {
     console.log(`
-ailog - Collect Claude Code and Cursor logs
+ailog - Collect Claude Code logs for current project
 
 Usage:
-  npx ailog [command] [options]
+  npx ailog [command]
 
 Commands:
   clean       Remove the ailog folder
 
 Options:
-  --claude    Copy only Claude Code logs
-  --cursor    Copy only Cursor logs
   -h, --help  Show this help message
 
 Output:
@@ -31,7 +28,8 @@ Output:
     return;
   }
 
-  const targetDir = path.join(process.cwd(), OUTPUT_DIR);
+  const projectPath = process.cwd();
+  const targetDir = path.join(projectPath, OUTPUT_DIR);
 
   if (args.includes('clean')) {
     if (await exists(targetDir)) {
@@ -45,19 +43,10 @@ Output:
 
   await ensureDir(targetDir);
 
-  const claudeOnly = args.includes('--claude');
-  const cursorOnly = args.includes('--cursor');
-  const copyAll = !claudeOnly && !cursorOnly;
-
   log('🚀 Starting ailog...');
+  log(`📂 Project: ${projectPath}`);
 
-  if (copyAll || claudeOnly) {
-    await copyClaudeLogs(targetDir);
-  }
-
-  if (copyAll || cursorOnly) {
-    await copyCursorLogs(targetDir);
-  }
+  await copyClaudeLogs(targetDir, projectPath);
 
   log(`✅ Done! Logs saved to ./${OUTPUT_DIR}/`);
 }
@@ -66,4 +55,3 @@ main().catch((err) => {
   console.error('Error:', err.message);
   process.exit(1);
 });
-
