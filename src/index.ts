@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 import { copyClaudeLogs } from './claude.js';
@@ -13,6 +14,7 @@ import {
   getUserIdentifier,
   log,
   logError,
+  scpUpload,
   setVerbose,
 } from './utils.js';
 
@@ -138,15 +140,20 @@ async function dumpProject(projectIndex: number, outputPath?: string) {
   const username = getGitUsername();
   const userIdentifier = getUserIdentifier();
 
-  // Determine output directory
+  // Determine output directory and remote target
   let baseDir: string;
+  let isRemote = false;
+  let remoteTarget: string | undefined;
 
   if (outputPath) {
     baseDir = path.resolve(outputPath, OUTPUT_DIR);
+  } else if (selectedProject.isRemote && selectedProject.tool === 'Cursor') {
+    // For remote Cursor: use temp directory, then scp to remote
+    baseDir = path.join(os.tmpdir(), 'ailog-temp', userIdentifier);
+    isRemote = true;
+    remoteTarget = `${selectedProject.remoteHost}:${project.path}/${OUTPUT_DIR}/${userIdentifier}/`;
   } else {
-    // Dump to project location
-    // For Cursor: reads from local DB, can write to remote path
-    // For Claude: only supports local projects
+    // Local project or Claude (always local)
     baseDir = path.join(project.path, OUTPUT_DIR);
   }
 
@@ -157,7 +164,12 @@ async function dumpProject(projectIndex: number, outputPath?: string) {
   log(`Project: ${project.path}`);
   log(`Tool: ${selectedProject.tool}`);
   log(`User: ${username}`);
-  log(`Output: ${baseDir}/${userIdentifier}/`);
+
+  if (isRemote && remoteTarget) {
+    log(`Output: ${remoteTarget} (via scp)`);
+  } else {
+    log(`Output: ${baseDir}/${userIdentifier}/`);
+  }
 
   // Only copy logs for the selected tool
   if (selectedProject.tool === 'Claude') {
@@ -166,7 +178,21 @@ async function dumpProject(projectIndex: number, outputPath?: string) {
     await copyCursorLogs(userDir, project.path, username);
   }
 
-  log(`Done! Logs saved to ${userDir}`);
+  // Upload to remote if needed
+  if (isRemote && remoteTarget) {
+    log('Uploading to remote server...');
+    try {
+      scpUpload(userDir, remoteTarget);
+      // Clean up temp directory
+      await fs.rm(baseDir, { recursive: true });
+      log(`Done! Logs uploaded to ${remoteTarget}`);
+    } catch (e) {
+      logError('remote upload', e);
+      log(`Failed to upload. Logs are available locally at ${userDir}`);
+    }
+  } else {
+    log(`Done! Logs saved to ${userDir}`);
+  }
 }
 
 async function main() {

@@ -117,3 +117,31 @@ export function formatRemoteInfo(remoteHost: string, path: string): string {
   // If not, just use the hostname
   return `${remoteHost}:${path}`;
 }
+
+export function scpUpload(localDir: string, remoteTarget: string): void {
+  // remoteTarget format: "user@host:/remote/path/"
+  // Parse remote target to get host and path
+  const match = remoteTarget.match(/^(.+):(.+)$/);
+  if (!match) {
+    throw new Error('Invalid remote target format. Expected "host:/path/"');
+  }
+
+  const [, host, remotePath] = match;
+
+  // Ensure remote directory exists
+  try {
+    execSync(`ssh "${host}" "mkdir -p '${remotePath}'"`, { stdio: 'pipe' });
+  } catch (e) {
+    debug(`Failed to create remote directory: ${(e as Error).message}`);
+  }
+
+  // Upload files
+  try {
+    const cmd = `scp -r "${localDir}"/* "${remoteTarget}"`;
+    execSync(cmd, { stdio: 'inherit' });
+    log(`   Uploaded to ${remoteTarget}`);
+  } catch (e) {
+    logError('uploading via scp', e);
+    throw e;
+  }
+}
