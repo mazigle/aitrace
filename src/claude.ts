@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { Session, SessionEntry } from './format.js';
 import { formatFilename, generateMarkdown } from './format.js';
 import { getClaudeProjectDir } from './paths.js';
-import { debug, ensureDir, exists, log, logError } from './utils.js';
+import { debug, ensureDir, exists, log } from './utils.js';
 
 interface ClaudeMessage {
   type: string;
@@ -105,17 +105,17 @@ function buildSession(messages: ClaudeMessage[], sessionId: string): Session | n
   };
 }
 
-export async function countClaudeSessions(projectPath: string): Promise<number> {
+async function getClaudeSessions(projectPath: string): Promise<Session[]> {
   const claudeProjectDir = getClaudeProjectDir(projectPath);
+  const sessions: Session[] = [];
 
   if (!(await exists(claudeProjectDir))) {
-    return 0;
+    return sessions;
   }
 
   try {
     const files = await fs.readdir(claudeProjectDir);
     const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
-    let count = 0;
 
     for (const file of jsonlFiles) {
       const filePath = path.join(claudeProjectDir, file);
@@ -125,17 +125,21 @@ export async function countClaudeSessions(projectPath: string): Promise<number> 
         const messages = await parseJsonlFile(filePath);
         const session = buildSession(messages, sessionId);
         if (session) {
-          count++;
+          sessions.push(session);
         }
-      } catch {
-        // Skip invalid sessions
+      } catch (e) {
+        debug(`Failed to process ${file}: ${(e as Error).message}`);
       }
     }
-
-    return count;
   } catch {
-    return 0;
+    // Return empty sessions on error
   }
+
+  return sessions;
+}
+
+export async function countClaudeSessions(projectPath: string): Promise<number> {
+  return (await getClaudeSessions(projectPath)).length;
 }
 
 export async function copyClaudeLogs(
@@ -143,45 +147,22 @@ export async function copyClaudeLogs(
   projectPath: string,
   username: string
 ): Promise<void> {
-  const claudeProjectDir = getClaudeProjectDir(projectPath);
+  log('Processing Claude Code logs...');
   const destDir = path.join(targetDir, 'claude');
+  await ensureDir(destDir);
 
-  if (!(await exists(claudeProjectDir))) {
-    log(`Claude Code logs not found for: ${projectPath}`);
+  const sessions = await getClaudeSessions(projectPath);
+
+  if (sessions.length === 0) {
+    log('   No Claude Code conversations found for this project');
     return;
   }
 
-  log('Processing Claude Code logs...');
-  await ensureDir(destDir);
-
-  const files = await fs.readdir(claudeProjectDir);
-  const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
-  let processedCount = 0;
-  let failedCount = 0;
-
-  for (const file of jsonlFiles) {
-    const filePath = path.join(claudeProjectDir, file);
-    const sessionId = path.basename(file, '.jsonl');
-
-    try {
-      const messages = await parseJsonlFile(filePath);
-      const session = buildSession(messages, sessionId);
-
-      if (session) {
-        const markdown = generateMarkdown(session, username, 'Claude Code');
-        const filename = formatFilename(session.firstTimestamp, session.id, session.firstUserMessage);
-        await fs.writeFile(path.join(destDir, filename), markdown);
-        processedCount++;
-      }
-    } catch (e) {
-      logError(`processing ${file}`, e);
-      failedCount++;
-    }
+  for (const session of sessions) {
+    const markdown = generateMarkdown(session, username, 'Claude Code');
+    const filename = formatFilename(session.firstTimestamp, session.id, session.firstUserMessage);
+    await fs.writeFile(path.join(destDir, filename), markdown);
   }
 
-  if (failedCount > 0) {
-    log(`   Processed ${processedCount} sessions (${failedCount} failed)`);
-  } else {
-    log(`   Processed ${processedCount} sessions`);
-  }
+  log(`   Processed ${sessions.length} sessions`);
 }

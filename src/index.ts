@@ -108,7 +108,7 @@ async function printProjectList(showAll: boolean, showCount: boolean) {
       } else if (p.tool === 'Cursor') {
         sessionCount = countCursorSessions(p.path);
       }
-      sessionInfo = sessionCount > 0 ? ` (${sessionCount})` : '';
+      sessionInfo = ` (${sessionCount})`;
     }
 
     // For remote projects, show hostname:path format
@@ -209,6 +209,9 @@ async function dumpProject(projectIndex: number, outputPath?: string) {
   }
 }
 
+const VALID_FLAGS = ['--verbose', '-v', '--help', '-h', '--all', '--count', '-c', '--output', '-o'];
+const VALID_COMMANDS = ['list', 'dump', 'clean'];
+
 async function main() {
   const args = process.argv.slice(2);
 
@@ -232,8 +235,24 @@ async function main() {
     outputPath = args[outputIdx + 1];
   }
 
+  // Validate unknown flags
+  for (const arg of args) {
+    if (arg.startsWith('-') && !VALID_FLAGS.includes(arg) && arg !== outputPath) {
+      console.error(`Error: Unknown option '${arg}'`);
+      console.error('Use --help to see available options.');
+      process.exit(1);
+    }
+  }
+
   // Get command
-  const command = args.find((a) => !a.startsWith('-') && a !== outputPath);
+  const command = args.find((a) => !a.startsWith('-') && a !== outputPath && !/^\d+$/.test(a));
+
+  // Validate unknown commands
+  if (command && !VALID_COMMANDS.includes(command)) {
+    console.error(`Error: Unknown command '${command}'`);
+    console.error('Use --help to see available commands.');
+    process.exit(1);
+  }
 
   // Handle commands
   if (command === 'list') {
