@@ -135,9 +135,9 @@ function getCursorSessions(projectPath: string): Session[] {
   }
 
   try {
-    // Get all composer data
+    // Get all composer data (use >= and < for index optimization)
     const composerRows = db
-      .prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")
+      .prepare("SELECT key, value FROM cursorDiskKV WHERE key >= 'composerData:' AND key < 'composerData;'")
       .all() as KVRow[];
 
     if (composerRows.length === 0) {
@@ -150,12 +150,13 @@ function getCursorSessions(projectPath: string): Session[] {
     }
 
     // Get bubbles that contain the project path and find matching composers
+    // Use >= and < for index optimization, only fetch key since we just need composer IDs
     const escapedPath = projectPath.replace(/'/g, "''");
     const initialBubbleRows = db
       .prepare(
-        `SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%${escapedPath}%'`
+        `SELECT key FROM cursorDiskKV WHERE key >= 'bubbleId:' AND key < 'bubbleId;' AND value LIKE '%${escapedPath}%'`
       )
-      .all() as KVRow[];
+      .all() as { key: string }[];
 
     const matchingComposerIds = new Set<string>();
 
@@ -170,34 +171,7 @@ function getCursorSessions(projectPath: string): Session[] {
       return sessions;
     }
 
-    // Single optimized query: get all bubbles for matching composers
-    const composerIdPatterns = Array.from(matchingComposerIds)
-      .map((id) => `'bubbleId:${id}:%'`)
-      .join(' OR key LIKE ');
-
-    const allBubbleRows = db
-      .prepare(`SELECT key, value FROM cursorDiskKV WHERE key LIKE ${composerIdPatterns}`)
-      .all() as KVRow[];
-
-    const allBubbles = new Map<string, BubbleWithJson>();
-
-    for (const row of allBubbleRows) {
-      const parsed = parseBubbleKey(row.key);
-      if (!parsed) continue;
-
-      try {
-        const parsedBubble = JSON.parse(row.value);
-        if (!isValidBubble(parsedBubble)) {
-          debug(`Invalid bubble structure: ${row.key}`);
-          continue;
-        }
-        allBubbles.set(`${parsed.composerId}:${parsed.bubbleId}`, { bubble: parsedBubble, json: row.value });
-      } catch (e) {
-        debug(`Failed to parse bubble JSON: ${(e as Error).message}`);
-      }
-    }
-
-    // Process matching composers
+    // Process each matching composer with individual optimized queries
     for (const composerId of matchingComposerIds) {
       const composerJson = composerMap.get(`composerData:${composerId}`);
       if (!composerJson) continue;
@@ -205,11 +179,25 @@ function getCursorSessions(projectPath: string): Session[] {
       try {
         const composerData: ComposerData = JSON.parse(composerJson);
 
+        // Get all bubbles for this composer using index-optimized range query
+        const bubbleRows = db
+          .prepare(`SELECT key, value FROM cursorDiskKV WHERE key >= 'bubbleId:${composerId}:' AND key < 'bubbleId:${composerId};'`)
+          .all() as KVRow[];
+
         const composerBubbles = new Map<string, BubbleWithJson>();
-        for (const [key, item] of allBubbles) {
-          if (key.startsWith(`${composerId}:`)) {
-            const bubbleId = key.slice(composerId.length + 1);
-            composerBubbles.set(bubbleId, item);
+        for (const row of bubbleRows) {
+          const parsed = parseBubbleKey(row.key);
+          if (!parsed) continue;
+
+          try {
+            const parsedBubble = JSON.parse(row.value);
+            if (!isValidBubble(parsedBubble)) {
+              debug(`Invalid bubble structure: ${row.key}`);
+              continue;
+            }
+            composerBubbles.set(parsed.bubbleId, { bubble: parsedBubble, json: row.value });
+          } catch (e) {
+            debug(`Failed to parse bubble JSON: ${(e as Error).message}`);
           }
         }
 
