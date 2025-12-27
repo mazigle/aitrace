@@ -17,9 +17,9 @@ Usage:
   npx ailog [command] [options]
 
 Commands:
-  (none)        Dump logs for current project, or list if not a project
-  list          List recent projects (default: ${DEFAULT_LIST_LIMIT})
-  list --all    List all projects
+  (none)        Dump logs for current project
+  list          List available projects
+  list --all    List all projects (including remote/missing)
   dump <N>      Dump logs for project N (from list)
   clean         Remove your logs from current directory
   clean --all   Remove all ailog data from current directory
@@ -30,13 +30,25 @@ Options:
   -h, --help           Show this help message
 
 Examples:
-  ailog                    # Dump current project or show list
-  ailog list               # Show 10 most recent projects
-  ailog list --all         # Show all projects
+  ailog                    # Dump logs for current project
+  ailog list               # Show available projects
+  ailog list --all         # Show all projects including remote
   ailog dump 1             # Dump project #1 to its location
   ailog dump 1 -o ./logs   # Dump project #1 to ./logs
   ailog clean              # Remove your logs only
   ailog clean --all        # Remove all logs
+`);
+}
+
+function printNotInProject() {
+  console.log(`
+Not in a known project directory.
+
+Usage:
+  ailog              Run in a project directory to dump logs
+  ailog list         Show available projects
+  ailog dump <N>     Dump logs for project N from list
+  ailog --help       Show all options
 `);
 }
 
@@ -49,17 +61,19 @@ function shortenPath(fullPath: string): string {
 }
 
 async function printProjectList(showAll: boolean) {
-  const allProjects = await listProjects();
+  // Always include inaccessible (missing/remote) projects in list
+  const allProjects = await listProjects({ includeInaccessible: true });
 
   if (allProjects.length === 0) {
     log('No projects found in Claude Code or Cursor.');
     return;
   }
 
+  // --all flag controls count limit only
   const projects = showAll ? allProjects : allProjects.slice(0, DEFAULT_LIST_LIMIT);
   const hasMore = !showAll && allProjects.length > DEFAULT_LIST_LIMIT;
 
-  log(`Projects (${showAll ? 'all' : 'recent'}):\n`);
+  log('Projects:\n');
 
   const maxIdxWidth = String(projects.length).length;
 
@@ -74,20 +88,25 @@ async function printProjectList(showAll: boolean) {
     const shortPath = shortenPath(p.path);
     const toolsStr = `[${tools.join(', ')}]`;
     const timeStr = formatRelativeTime(p.lastActivity);
-    const remoteTag = accessible ? '' : ' (remote)';
 
-    log(`  ${idx}. ${shortPath}  ${toolsStr}  ${timeStr}${remoteTag}`);
+    // Show appropriate tag: remote (SSH), missing (deleted/bad decode), or nothing
+    let statusTag = '';
+    if (!accessible) {
+      statusTag = p.isRemote ? ' (remote)' : ' (missing)';
+    }
+
+    log(`  ${idx}. ${shortPath}  ${toolsStr}  ${timeStr}${statusTag}`);
   }
 
   if (hasMore) {
-    log(`\n  ... ${allProjects.length - DEFAULT_LIST_LIMIT} more (use --all to see all)`);
+    log(`\n  ... ${allProjects.length - DEFAULT_LIST_LIMIT} more`);
   }
 
   log('\nUsage: ailog dump <N>');
 }
 
-async function dumpProject(projectIndex: number, outputPath?: string) {
-  const projects = await listProjects();
+async function dumpProject(projectIndex: number, outputPath?: string, includeInaccessible = false) {
+  const projects = await listProjects({ includeInaccessible });
 
   if (projectIndex < 1 || projectIndex > projects.length) {
     console.error(`Error: Invalid project number. Use 1-${projects.length}`);
@@ -169,7 +188,7 @@ async function main() {
       console.error('Error: dump requires a project number. Use "ailog list" first.');
       process.exit(1);
     }
-    await dumpProject(parseInt(numArg, 10), outputPath);
+    await dumpProject(parseInt(numArg, 10), outputPath, showAll);
     return;
   }
 
@@ -204,8 +223,7 @@ async function main() {
   const isProject = await isKnownProject(projectPath);
 
   if (!isProject) {
-    // Fallback to list
-    await printProjectList(false);
+    printNotInProject();
     return;
   }
 
