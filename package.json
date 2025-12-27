@@ -1,7 +1,7 @@
 {
   "name": "ailog",
   "version": "0.1.0",
-  "description": "CLI tool to collect Claude Code and Cursor logs",
+  "description": "CLI tool to collect coding agent logs",
   "type": "module",
   "bin": {
     "ailog": "./src/cli.js"
