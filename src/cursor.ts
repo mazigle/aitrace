@@ -112,11 +112,11 @@ export async function copyCursorLogs(
   const dbPath = getCursorDbPath();
 
   if (!(await exists(dbPath))) {
-    log('⚠️  Cursor state database not found');
+    log('Cursor state database not found');
     return;
   }
 
-  log('📋 Processing Cursor logs...');
+  log('Processing Cursor logs...');
   const destDir = path.join(targetDir, 'cursor');
   await ensureDir(destDir);
 

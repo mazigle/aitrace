@@ -1,4 +1,5 @@
 // Centralized path management for all supported tools
+import fs from 'node:fs';
 import path from 'node:path';
 
 export type Platform = 'darwin' | 'linux' | 'win32';
@@ -44,20 +45,69 @@ export function getClaudeProjectsRoot(): string {
 }
 
 export function decodeProjectPath(encodedPath: string): string {
-  // -Users-donghyun-repo-ailog -> /Users/donghyun/repo/ailog
-  // Handle Windows: -C--Users-... -> C:\Users\...
+  // -Users-donghyun-repo-sgr-newsletter -> /Users/donghyun/repo/sgr-newsletter
+  // The challenge: both / and - in original path become - in encoded path
+  // Solution: Greedily find existing directories from left to right
+
   const platform = getPlatform();
+  const sep = platform === 'win32' ? '\\' : '/';
 
   if (platform === 'win32') {
     // Check if it looks like a Windows path (starts with -X- where X is a drive letter)
     const winMatch = encodedPath.match(/^-([A-Za-z])-(.*)$/);
     if (winMatch) {
       const [, drive, rest] = winMatch;
-      return `${drive}:${rest.replace(/-/g, '\\')}`;
+      return decodePathSegments(`${drive}:`, rest.split('-').filter(Boolean), sep);
     }
   }
 
-  // Unix path: -Users-donghyun-... -> /Users/donghyun/...
-  return encodedPath.replace(/-/g, '/');
+  // Unix path: -Users-donghyun-repo-... -> /Users/donghyun/repo/...
+  const segments = encodedPath.split('-').filter(Boolean);
+  return decodePathSegments('', segments, sep);
+}
+
+function decodePathSegments(prefix: string, segments: string[], sep: string): string {
+  // Greedily decode: find the shortest segment that exists as a directory,
+  // then recurse with remaining segments
+
+  let currentPath = prefix;
+  let remaining = [...segments];
+
+  while (remaining.length > 0) {
+    let found = false;
+
+    // Try single segment first (most common case)
+    for (let len = 1; len <= remaining.length; len++) {
+      const segment = remaining.slice(0, len).join('-');
+      const testPath = currentPath ? `${currentPath}${sep}${segment}` : `${sep}${segment}`;
+
+      // If this is the last segment(s), just accept it
+      if (len === remaining.length) {
+        return testPath;
+      }
+
+      // Check if this path exists as a directory
+      try {
+        const stat = fs.statSync(testPath);
+        if (stat.isDirectory()) {
+          currentPath = testPath;
+          remaining = remaining.slice(len);
+          found = true;
+          break;
+        }
+      } catch {
+        // Path doesn't exist, try longer segment
+      }
+    }
+
+    // If nothing was found, fallback to single segment
+    if (!found) {
+      const segment = remaining[0];
+      currentPath = currentPath ? `${currentPath}${sep}${segment}` : `${sep}${segment}`;
+      remaining = remaining.slice(1);
+    }
+  }
+
+  return currentPath || sep;
 }
 

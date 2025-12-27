@@ -1,14 +1,17 @@
 // Project discovery and listing
 import Database from 'better-sqlite3';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 
-import { decodeProjectPath, getClaudeProjectsRoot, getCursorDbPath } from './paths.js';
+import { decodeProjectPath, encodeProjectPath, getClaudeProjectsRoot, getCursorDbPath } from './paths.js';
 import { debug, exists } from './utils.js';
 
 export interface Project {
   path: string;
+  name: string;
   hasClaude: boolean;
   hasCursor: boolean;
+  lastActivity: Date;
 }
 
 interface KVRow {
@@ -16,8 +19,18 @@ interface KVRow {
   value: string;
 }
 
-async function getClaudeProjects(): Promise<Set<string>> {
-  const projects = new Set<string>();
+interface ClaudeProject {
+  path: string;
+  lastActivity: Date;
+}
+
+interface CursorProject {
+  path: string;
+  lastActivity: Date;
+}
+
+async function getClaudeProjects(): Promise<Map<string, ClaudeProject>> {
+  const projects = new Map<string, ClaudeProject>();
   const claudeRoot = getClaudeProjectsRoot();
 
   if (!(await exists(claudeRoot))) {
@@ -29,7 +42,29 @@ async function getClaudeProjects(): Promise<Set<string>> {
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name.startsWith('-')) {
         const projectPath = decodeProjectPath(entry.name);
-        projects.add(projectPath);
+        const dirPath = path.join(claudeRoot, entry.name);
+
+        // Get last activity from folder mtime
+        let lastActivity = new Date(0);
+        try {
+          const stat = await fs.stat(dirPath);
+          lastActivity = stat.mtime;
+
+          // Also check individual jsonl files for more accurate time
+          const files = await fs.readdir(dirPath);
+          for (const file of files) {
+            if (file.endsWith('.jsonl')) {
+              const fileStat = await fs.stat(path.join(dirPath, file));
+              if (fileStat.mtime > lastActivity) {
+                lastActivity = fileStat.mtime;
+              }
+            }
+          }
+        } catch {
+          // Use default
+        }
+
+        projects.set(projectPath, { path: projectPath, lastActivity });
       }
     }
   } catch (e) {
@@ -39,8 +74,8 @@ async function getClaudeProjects(): Promise<Set<string>> {
   return projects;
 }
 
-function getCursorProjects(): Set<string> {
-  const projects = new Set<string>();
+function getCursorProjects(): Map<string, CursorProject> {
+  const projects = new Map<string, CursorProject>();
   const dbPath = getCursorDbPath();
 
   let db: Database.Database;
@@ -52,39 +87,44 @@ function getCursorProjects(): Set<string> {
   }
 
   try {
-    // Query for all unique project paths from bubbles that have file attachments
+    // Query for bubbles with file attachments and timing info
     const bubbleRows = db
       .prepare(
-        "SELECT DISTINCT value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%attachedFileCodeChunksUris%'"
+        "SELECT value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%attachedFileCodeChunksUris%'"
       )
       .all() as { value: string }[];
 
-    // Extract unique project roots from file paths
     const pathRegex = /"path"\s*:\s*"([^"]+)"/g;
+    const timeRegex = /"clientRpcSendTime"\s*:\s*(\d+)/;
+
     for (const row of bubbleRows) {
+      // Extract timestamp
+      const timeMatch = row.value.match(timeRegex);
+      const timestamp = timeMatch ? new Date(parseInt(timeMatch[1], 10)) : new Date(0);
+
+      // Extract paths
       let match;
       while ((match = pathRegex.exec(row.value)) !== null) {
         const filePath = match[1];
-        // Extract project root (assume it's up to a common depth)
-        // e.g., /Users/donghyun/repo/project/src/file.ts -> /Users/donghyun/repo/project
         const parts = filePath.split('/');
-        // Find likely project root (where common dirs like src, lib, node_modules would be)
         for (let i = parts.length - 1; i >= 3; i--) {
           const candidate = parts.slice(0, i).join('/');
           if (candidate && !candidate.includes('node_modules')) {
-            projects.add(candidate);
+            const existing = projects.get(candidate);
+            if (!existing || timestamp > existing.lastActivity) {
+              projects.set(candidate, { path: candidate, lastActivity: timestamp });
+            }
             break;
           }
         }
       }
     }
 
-    // Also get from composerData workspace paths if available
+    // Also check composerData for workspace paths
     const composerRows = db
       .prepare("SELECT value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")
       .all() as { value: string }[];
 
-    // Look for workspace paths in composer data
     const workspaceRegex = /"fsPath"\s*:\s*"([^"]+)"/g;
     for (const row of composerRows) {
       let match;
@@ -94,7 +134,9 @@ function getCursorProjects(): Set<string> {
         for (let i = parts.length - 1; i >= 3; i--) {
           const candidate = parts.slice(0, i).join('/');
           if (candidate && !candidate.includes('node_modules')) {
-            projects.add(candidate);
+            if (!projects.has(candidate)) {
+              projects.set(candidate, { path: candidate, lastActivity: new Date(0) });
+            }
             break;
           }
         }
@@ -114,19 +156,33 @@ export async function listProjects(): Promise<Project[]> {
   const cursorProjects = getCursorProjects();
 
   // Merge all unique paths
-  const allPaths = new Set([...claudeProjects, ...cursorProjects]);
+  const allPaths = new Set([...claudeProjects.keys(), ...cursorProjects.keys()]);
 
   const projects: Project[] = [];
-  for (const path of allPaths) {
+  for (const p of allPaths) {
+    const claude = claudeProjects.get(p);
+    const cursor = cursorProjects.get(p);
+
+    // Get the most recent activity from either tool
+    let lastActivity = new Date(0);
+    if (claude && claude.lastActivity > lastActivity) {
+      lastActivity = claude.lastActivity;
+    }
+    if (cursor && cursor.lastActivity > lastActivity) {
+      lastActivity = cursor.lastActivity;
+    }
+
     projects.push({
-      path,
-      hasClaude: claudeProjects.has(path),
-      hasCursor: cursorProjects.has(path),
+      path: p,
+      name: path.basename(p),
+      hasClaude: claudeProjects.has(p),
+      hasCursor: cursorProjects.has(p),
+      lastActivity,
     });
   }
 
-  // Sort by path
-  projects.sort((a, b) => a.path.localeCompare(b.path));
+  // Sort by last activity (most recent first)
+  projects.sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime());
 
   return projects;
 }

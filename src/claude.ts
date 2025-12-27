@@ -100,11 +100,11 @@ export async function copyClaudeLogs(
   const destDir = path.join(targetDir, 'claude');
 
   if (!(await exists(claudeProjectDir))) {
-    log(`⚠️  Claude Code logs not found for: ${projectPath}`);
+    log(`Claude Code logs not found for: ${projectPath}`);
     return;
   }
 
-  log('📋 Processing Claude Code logs...');
+  log('Processing Claude Code logs...');
   await ensureDir(destDir);
 
   const files = await fs.readdir(claudeProjectDir);

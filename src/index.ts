@@ -4,9 +4,10 @@ import path from 'node:path';
 import { copyClaudeLogs } from './claude.js';
 import { copyCursorLogs } from './cursor.js';
 import { canAccessPath, isKnownProject, listProjects } from './projects.js';
-import { ensureDir, exists, getGitUsername, getUserIdentifier, log, setVerbose } from './utils.js';
+import { ensureDir, exists, formatRelativeTime, getGitUsername, getUserIdentifier, log, setVerbose } from './utils.js';
 
 const OUTPUT_DIR = 'ailog';
+const DEFAULT_LIST_LIMIT = 10;
 
 function printHelp() {
   console.log(`
@@ -17,7 +18,8 @@ Usage:
 
 Commands:
   (none)        Dump logs for current project, or list if not a project
-  list          List all known projects
+  list          List recent projects (default: ${DEFAULT_LIST_LIMIT})
+  list --all    List all projects
   dump <N>      Dump logs for project N (from list)
   clean         Remove your logs from current directory
   clean --all   Remove all ailog data from current directory
@@ -29,7 +31,8 @@ Options:
 
 Examples:
   ailog                    # Dump current project or show list
-  ailog list               # Show all projects
+  ailog list               # Show 10 most recent projects
+  ailog list --all         # Show all projects
   ailog dump 1             # Dump project #1 to its location
   ailog dump 1 -o ./logs   # Dump project #1 to ./logs
   ailog clean              # Remove your logs only
@@ -37,31 +40,50 @@ Examples:
 `);
 }
 
-async function printProjectList() {
-  const projects = await listProjects();
+function shortenPath(fullPath: string): string {
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  if (home && fullPath.startsWith(home)) {
+    return '~' + fullPath.slice(home.length);
+  }
+  return fullPath;
+}
 
-  if (projects.length === 0) {
-    log('📋 No projects found in Claude Code or Cursor.');
+async function printProjectList(showAll: boolean) {
+  const allProjects = await listProjects();
+
+  if (allProjects.length === 0) {
+    log('No projects found in Claude Code or Cursor.');
     return;
   }
 
-  log('📋 Available projects:\n');
+  const projects = showAll ? allProjects : allProjects.slice(0, DEFAULT_LIST_LIMIT);
+  const hasMore = !showAll && allProjects.length > DEFAULT_LIST_LIMIT;
+
+  log(`Projects (${showAll ? 'all' : 'recent'}):\n`);
+
+  const maxIdxWidth = String(projects.length).length;
 
   for (let i = 0; i < projects.length; i++) {
     const p = projects[i];
     const tools: string[] = [];
     if (p.hasClaude) tools.push('Claude');
     if (p.hasCursor) tools.push('Cursor');
-    const toolsStr = tools.join(', ');
 
     const accessible = await canAccessPath(p.path);
-    const accessIcon = accessible ? '' : ' (remote)';
+    const idx = String(i + 1).padStart(maxIdxWidth, ' ');
+    const shortPath = shortenPath(p.path);
+    const toolsStr = `[${tools.join(', ')}]`;
+    const timeStr = formatRelativeTime(p.lastActivity);
+    const remoteTag = accessible ? '' : ' (remote)';
 
-    log(`  ${i + 1}. ${p.path}${accessIcon}`);
-    log(`     [${toolsStr}]`);
+    log(`  ${idx}. ${shortPath}  ${toolsStr}  ${timeStr}${remoteTag}`);
   }
 
-  log('\nUse: ailog dump <N> [-o <path>]');
+  if (hasMore) {
+    log(`\n  ... ${allProjects.length - DEFAULT_LIST_LIMIT} more (use --all to see all)`);
+  }
+
+  log('\nUsage: ailog dump <N>');
 }
 
 async function dumpProject(projectIndex: number, outputPath?: string) {
@@ -95,10 +117,10 @@ async function dumpProject(projectIndex: number, outputPath?: string) {
   const userDir = path.join(baseDir, userIdentifier);
   await ensureDir(userDir);
 
-  log('🚀 Starting ailog...');
-  log(`📂 Project: ${project.path}`);
-  log(`👤 User: ${username}`);
-  log(`📁 Output: ${baseDir}/${userIdentifier}/`);
+  log('Starting ailog...');
+  log(`Project: ${project.path}`);
+  log(`User: ${username}`);
+  log(`Output: ${baseDir}/${userIdentifier}/`);
 
   if (project.hasClaude) {
     await copyClaudeLogs(userDir, project.path, username);
@@ -107,7 +129,7 @@ async function dumpProject(projectIndex: number, outputPath?: string) {
     await copyCursorLogs(userDir, project.path, username);
   }
 
-  log(`✅ Done! Logs saved to ${userDir}`);
+  log(`Done! Logs saved to ${userDir}`);
 }
 
 async function main() {
@@ -123,6 +145,8 @@ async function main() {
     return;
   }
 
+  const showAll = args.includes('--all');
+
   // Parse --output / -o
   let outputPath: string | undefined;
   const outputIdx = args.findIndex((a) => a === '--output' || a === '-o');
@@ -135,7 +159,7 @@ async function main() {
 
   // Handle commands
   if (command === 'list') {
-    await printProjectList();
+    await printProjectList(showAll);
     return;
   }
 
@@ -153,13 +177,13 @@ async function main() {
     const projectPath = process.cwd();
     const baseDir = path.join(projectPath, OUTPUT_DIR);
 
-    if (args.includes('--all')) {
+    if (showAll) {
       // Clean everything
       if (await exists(baseDir)) {
         await fs.rm(baseDir, { recursive: true });
-        log('🧹 Cleaned up all ailog data');
+        log('Cleaned up all ailog data');
       } else {
-        log('ℹ️  No ailog folder to clean');
+        log('No ailog folder to clean');
       }
     } else {
       // Clean only current user's folder
@@ -167,9 +191,9 @@ async function main() {
       const userDir = path.join(baseDir, userIdentifier);
       if (await exists(userDir)) {
         await fs.rm(userDir, { recursive: true });
-        log(`🧹 Cleaned up ${userIdentifier}/`);
+        log(`Cleaned up ${userIdentifier}/`);
       } else {
-        log(`ℹ️  No logs found for ${userIdentifier}`);
+        log(`No logs found for ${userIdentifier}`);
       }
     }
     return;
@@ -181,7 +205,7 @@ async function main() {
 
   if (!isProject) {
     // Fallback to list
-    await printProjectList();
+    await printProjectList(false);
     return;
   }
 
@@ -193,14 +217,14 @@ async function main() {
 
   await ensureDir(userDir);
 
-  log('🚀 Starting ailog...');
-  log(`📂 Project: ${projectPath}`);
-  log(`👤 User: ${username}`);
+  log('Starting ailog...');
+  log(`Project: ${projectPath}`);
+  log(`User: ${username}`);
 
   await copyClaudeLogs(userDir, projectPath, username);
   await copyCursorLogs(userDir, projectPath, username);
 
-  log(`✅ Done! Logs saved to ./${OUTPUT_DIR}/${userIdentifier}/`);
+  log(`Done! Logs saved to ./${OUTPUT_DIR}/${userIdentifier}/`);
 }
 
 main().catch((err) => {
