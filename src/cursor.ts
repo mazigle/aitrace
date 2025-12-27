@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import type { Session, SessionEntry } from './format.js';
 import { formatFilename, generateMarkdown } from './format.js';
-import { ensureDir, exists, getHomeDir, log } from './utils.js';
+import { debug, ensureDir, exists, getHomeDir, getPlatform, log } from './utils.js';
 
 interface Bubble {
   type: number; // 1 = user, 2 = assistant
@@ -27,15 +27,16 @@ interface ComposerData {
 
 function getStateDbPath(): string {
   const homeDir = getHomeDir();
-  return path.join(
-    homeDir,
-    'Library',
-    'Application Support',
-    'Cursor',
-    'User',
-    'globalStorage',
-    'state.vscdb'
-  );
+  const platform = getPlatform();
+
+  switch (platform) {
+    case 'darwin':
+      return path.join(homeDir, 'Library', 'Application Support', 'Cursor', 'User', 'globalStorage', 'state.vscdb');
+    case 'linux':
+      return path.join(homeDir, '.config', 'Cursor', 'User', 'globalStorage', 'state.vscdb');
+    case 'win32':
+      return path.join(process.env.APPDATA || homeDir, 'Cursor', 'User', 'globalStorage', 'state.vscdb');
+  }
 }
 
 function queryDb(dbPath: string, sql: string): string {
@@ -45,7 +46,8 @@ function queryDb(dbPath: string, sql: string): string {
       timeout: 30000,
       maxBuffer: 50 * 1024 * 1024,
     });
-  } catch {
+  } catch (e) {
+    debug(`SQLite query failed: ${(e as Error).message}`);
     return '';
   }
 }
@@ -116,6 +118,27 @@ function buildSession(
   };
 }
 
+interface ParsedBubbleLine {
+  composerId: string;
+  bubbleId: string;
+  bubble: Bubble;
+}
+
+function parseBubbleLine(line: string): ParsedBubbleLine | null {
+  if (!line.trim()) return null;
+
+  const match = line.match(/^bubbleId:([^:]+):([^|]+)\|(.+)$/);
+  if (!match) return null;
+
+  const [, composerId, bubbleId, json] = match;
+  try {
+    return { composerId, bubbleId, bubble: JSON.parse(json) };
+  } catch (e) {
+    debug(`Failed to parse bubble JSON: ${(e as Error).message}`);
+    return null;
+  }
+}
+
 function parseKeyValueOutput(output: string, keyPrefix: string): Map<string, string> {
   const result = new Map<string, string>();
 
@@ -173,19 +196,11 @@ export async function copyCursorLogs(
 
   if (bubbleResult.trim()) {
     for (const line of bubbleResult.split('\n')) {
-      if (!line.trim()) continue;
+      const parsed = parseBubbleLine(line);
+      if (!parsed) continue;
 
-      const match = line.match(/^bubbleId:([^:]+):([^|]+)\|(.+)$/);
-      if (!match) continue;
-
-      const [, composerId, bubbleId, json] = match;
-      matchingComposerIds.add(composerId);
-
-      try {
-        allBubbles.set(`${composerId}:${bubbleId}`, JSON.parse(json));
-      } catch {
-        // Skip invalid JSON
-      }
+      matchingComposerIds.add(parsed.composerId);
+      allBubbles.set(`${parsed.composerId}:${parsed.bubbleId}`, parsed.bubble);
     }
   }
 
@@ -203,20 +218,12 @@ export async function copyCursorLogs(
     if (!bubblesResult.trim()) continue;
 
     for (const line of bubblesResult.split('\n')) {
-      if (!line.trim()) continue;
+      const parsed = parseBubbleLine(line);
+      if (!parsed) continue;
 
-      const match = line.match(/^bubbleId:([^:]+):([^|]+)\|(.+)$/);
-      if (!match) continue;
-
-      const [, cId, bubbleId, json] = match;
-      const key = `${cId}:${bubbleId}`;
-
+      const key = `${parsed.composerId}:${parsed.bubbleId}`;
       if (!allBubbles.has(key)) {
-        try {
-          allBubbles.set(key, JSON.parse(json));
-        } catch {
-          // Skip
-        }
+        allBubbles.set(key, parsed.bubble);
       }
     }
   }
@@ -246,8 +253,8 @@ export async function copyCursorLogs(
         await fs.writeFile(path.join(destDir, filename), markdown);
         processedCount++;
       }
-    } catch {
-      // Skip invalid data
+    } catch (e) {
+      debug(`Failed to process composer ${composerId}: ${(e as Error).message}`);
     }
   }
 

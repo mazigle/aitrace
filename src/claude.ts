@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { formatFilename, generateMarkdown, Session, SessionEntry } from './format.js';
-import { ensureDir, exists, getHomeDir, log } from './utils.js';
+import type { Session, SessionEntry } from './format.js';
+import { formatFilename, generateMarkdown } from './format.js';
+import { debug, ensureDir, exists, getHomeDir, log } from './utils.js';
 
 interface ClaudeMessage {
   type: string;
@@ -15,7 +16,8 @@ interface ClaudeMessage {
 }
 
 function encodeProjectPath(projectPath: string): string {
-  return projectPath.replace(/\//g, '-');
+  // Handle both Unix (/) and Windows (\) path separators
+  return projectPath.replace(/[/\\]/g, '-');
 }
 
 function extractTextContent(message: ClaudeMessage['message']): string | null {
@@ -38,8 +40,8 @@ async function parseJsonlFile(filePath: string): Promise<ClaudeMessage[]> {
     if (!line.trim()) continue;
     try {
       messages.push(JSON.parse(line));
-    } catch {
-      // Skip invalid JSON lines
+    } catch (e) {
+      debug(`Failed to parse JSON line: ${(e as Error).message}`);
     }
   }
   return messages;
@@ -129,8 +131,8 @@ export async function copyClaudeLogs(
         await fs.writeFile(path.join(destDir, filename), markdown);
         processedCount++;
       }
-    } catch {
-      // Skip files that can't be processed
+    } catch (e) {
+      debug(`Failed to process ${file}: ${(e as Error).message}`);
     }
   }
 

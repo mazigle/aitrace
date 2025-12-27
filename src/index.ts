@@ -3,12 +3,16 @@ import path from 'node:path';
 
 import { copyClaudeLogs } from './claude.js';
 import { copyCursorLogs } from './cursor.js';
-import { ensureDir, exists, getGitUsername, log, slugify } from './utils.js';
+import { ensureDir, exists, getGitUsername, log, setVerbose, slugifyPath } from './utils.js';
 
 const OUTPUT_DIR = 'ailog';
 
 async function main() {
   const args = process.argv.slice(2);
+
+  if (args.includes('--verbose') || args.includes('-v')) {
+    setVerbose(true);
+  }
 
   if (args.includes('--help') || args.includes('-h')) {
     console.log(`
@@ -18,10 +22,11 @@ Usage:
   npx ailog [command]
 
 Commands:
-  clean       Remove the ailog folder
+  clean         Remove the ailog folder
 
 Options:
-  -h, --help  Show this help message
+  -v, --verbose Show debug output
+  -h, --help    Show this help message
 
 Output:
   Creates ./ailog/ directory with collected logs
@@ -31,7 +36,7 @@ Output:
 
   const projectPath = process.cwd();
   const username = getGitUsername();
-  const userSlug = slugify(username);
+  const userSlug = slugifyPath(username);
   const baseDir = path.join(projectPath, OUTPUT_DIR);
   const userDir = path.join(baseDir, userSlug);
 

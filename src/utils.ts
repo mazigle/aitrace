@@ -1,25 +1,8 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs/promises';
-import path from 'node:path';
 
 export async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
-}
-
-export async function copyDir(src: string, dest: string): Promise<void> {
-  await ensureDir(dest);
-  const entries = await fs.readdir(src, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-
-    if (entry.isDirectory()) {
-      await copyDir(srcPath, destPath);
-    } else {
-      await fs.copyFile(srcPath, destPath);
-    }
-  }
 }
 
 export async function exists(p: string): Promise<boolean> {
@@ -31,8 +14,29 @@ export async function exists(p: string): Promise<boolean> {
   }
 }
 
+let verboseMode = false;
+
+export function setVerbose(enabled: boolean): void {
+  verboseMode = enabled;
+}
+
 export function log(msg: string): void {
   console.log(msg);
+}
+
+export function debug(msg: string): void {
+  if (verboseMode) {
+    console.log(`[DEBUG] ${msg}`);
+  }
+}
+
+export type Platform = 'darwin' | 'linux' | 'win32';
+
+export function getPlatform(): Platform {
+  const p = process.platform;
+  if (p === 'darwin' || p === 'linux' || p === 'win32') return p;
+  // Fallback for other Unix-like systems
+  return 'linux';
 }
 
 export function getHomeDir(): string {
@@ -47,7 +51,7 @@ export function getGitUsername(): string {
   }
 }
 
-export function slugify(str: string): string {
+export function slugifyPath(str: string): string {
   return str.toLowerCase().trim().replace(/\s+/g, '-');
 }
 
