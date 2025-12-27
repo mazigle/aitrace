@@ -60,6 +60,9 @@ function buildSession(messages: ClaudeMessage[], sessionId: string): Session | n
     if (msg.type === 'user' && msg.message?.role === 'user') {
       const content = extractTextContent(msg.message);
       if (content && msg.timestamp) {
+        // Skip warmup messages
+        if (content.trim() === 'Warmup') continue;
+
         if (!firstUserMessage) firstUserMessage = content;
         if (currentEntry) entries.push(currentEntry);
         currentEntry = {
