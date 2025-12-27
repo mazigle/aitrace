@@ -21,6 +21,7 @@ interface Bubble {
 
 interface ComposerData {
   composerId: string;
+  createdAt?: number;
   fullConversationHeadersOnly: Array<{
     bubbleId: string;
     type: number;
@@ -32,11 +33,11 @@ interface KVRow {
   value: string;
 }
 
-function getTimestampFromBubble(bubble: Bubble): Date {
+function getTimestampFromBubble(bubble: Bubble): Date | null {
   if (bubble.timingInfo?.clientRpcSendTime) {
     return new Date(bubble.timingInfo.clientRpcSendTime);
   }
-  return new Date();
+  return null;
 }
 
 function bubbleBelongsToProject(bubbleJson: string, projectPath: string): boolean {
@@ -62,8 +63,10 @@ function buildSession(
   projectPath: string
 ): Session | null {
   const entries: SessionEntry[] = [];
-  let firstTimestamp: Date | null = null;
-  let lastTimestamp: Date | null = null;
+  // Use composerData.createdAt as the primary timestamp source
+  const createdAt = composerData.createdAt ? new Date(composerData.createdAt) : null;
+  let firstTimestamp: Date | null = createdAt;
+  let lastTimestamp: Date | null = createdAt;
   let belongsToProject = false;
   let firstUserMessage = '';
   let currentEntry: SessionEntry | null = null;
@@ -78,15 +81,18 @@ function buildSession(
       belongsToProject = true;
     }
 
-    const timestamp = getTimestampFromBubble(bubble);
-    if (!firstTimestamp || timestamp < firstTimestamp) firstTimestamp = timestamp;
-    if (!lastTimestamp || timestamp > lastTimestamp) lastTimestamp = timestamp;
+    // Only use bubble timestamp if available and valid
+    const bubbleTimestamp = getTimestampFromBubble(bubble);
+    if (bubbleTimestamp && !isNaN(bubbleTimestamp.getTime())) {
+      if (!firstTimestamp || bubbleTimestamp < firstTimestamp) firstTimestamp = bubbleTimestamp;
+      if (!lastTimestamp || bubbleTimestamp > lastTimestamp) lastTimestamp = bubbleTimestamp;
+    }
 
     if (bubble.type === 1 && bubble.text) {
       if (!firstUserMessage) firstUserMessage = bubble.text;
       if (currentEntry) entries.push(currentEntry);
       currentEntry = {
-        timestamp,
+        timestamp: bubbleTimestamp || createdAt || new Date(),
         userMessage: bubble.text,
       };
     }
