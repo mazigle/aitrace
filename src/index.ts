@@ -4,7 +4,7 @@ import path from 'node:path';
 import { copyClaudeLogs } from './claude.js';
 import { copyCursorLogs } from './cursor.js';
 import { canAccessPath, isKnownProject, listProjects } from './projects.js';
-import { ensureDir, exists, getGitUsername, log, setVerbose, slugifyPath } from './utils.js';
+import { ensureDir, exists, getGitUsername, getUserIdentifier, log, setVerbose } from './utils.js';
 
 const OUTPUT_DIR = 'ailog';
 
@@ -19,7 +19,8 @@ Commands:
   (none)        Dump logs for current project, or list if not a project
   list          List all known projects
   dump <N>      Dump logs for project N (from list)
-  clean         Remove the ailog folder in current directory
+  clean         Remove your logs from current directory
+  clean --all   Remove all ailog data from current directory
 
 Options:
   -o, --output <path>  Output directory (for dump command)
@@ -31,6 +32,8 @@ Examples:
   ailog list               # Show all projects
   ailog dump 1             # Dump project #1 to its location
   ailog dump 1 -o ./logs   # Dump project #1 to ./logs
+  ailog clean              # Remove your logs only
+  ailog clean --all        # Remove all logs
 `);
 }
 
@@ -71,7 +74,7 @@ async function dumpProject(projectIndex: number, outputPath?: string) {
 
   const project = projects[projectIndex - 1];
   const username = getGitUsername();
-  const userSlug = slugifyPath(username);
+  const userIdentifier = getUserIdentifier();
 
   // Determine output directory
   let baseDir: string;
@@ -89,13 +92,13 @@ async function dumpProject(projectIndex: number, outputPath?: string) {
     baseDir = path.join(project.path, OUTPUT_DIR);
   }
 
-  const userDir = path.join(baseDir, userSlug);
+  const userDir = path.join(baseDir, userIdentifier);
   await ensureDir(userDir);
 
   log('🚀 Starting ailog...');
   log(`📂 Project: ${project.path}`);
   log(`👤 User: ${username}`);
-  log(`📁 Output: ${baseDir}`);
+  log(`📁 Output: ${baseDir}/${userIdentifier}/`);
 
   if (project.hasClaude) {
     await copyClaudeLogs(userDir, project.path, username);
@@ -149,11 +152,25 @@ async function main() {
   if (command === 'clean') {
     const projectPath = process.cwd();
     const baseDir = path.join(projectPath, OUTPUT_DIR);
-    if (await exists(baseDir)) {
-      await fs.rm(baseDir, { recursive: true });
-      log('🧹 Cleaned up ailog folder');
+
+    if (args.includes('--all')) {
+      // Clean everything
+      if (await exists(baseDir)) {
+        await fs.rm(baseDir, { recursive: true });
+        log('🧹 Cleaned up all ailog data');
+      } else {
+        log('ℹ️  No ailog folder to clean');
+      }
     } else {
-      log('ℹ️  No ailog folder to clean');
+      // Clean only current user's folder
+      const userIdentifier = getUserIdentifier();
+      const userDir = path.join(baseDir, userIdentifier);
+      if (await exists(userDir)) {
+        await fs.rm(userDir, { recursive: true });
+        log(`🧹 Cleaned up ${userIdentifier}/`);
+      } else {
+        log(`ℹ️  No logs found for ${userIdentifier}`);
+      }
     }
     return;
   }
@@ -170,9 +187,9 @@ async function main() {
 
   // Dump current project
   const username = getGitUsername();
-  const userSlug = slugifyPath(username);
+  const userIdentifier = getUserIdentifier();
   const baseDir = path.join(projectPath, OUTPUT_DIR);
-  const userDir = path.join(baseDir, userSlug);
+  const userDir = path.join(baseDir, userIdentifier);
 
   await ensureDir(userDir);
 
@@ -183,7 +200,7 @@ async function main() {
   await copyClaudeLogs(userDir, projectPath, username);
   await copyCursorLogs(userDir, projectPath, username);
 
-  log(`✅ Done! Logs saved to ./${OUTPUT_DIR}/${userSlug}/`);
+  log(`✅ Done! Logs saved to ./${OUTPUT_DIR}/${userIdentifier}/`);
 }
 
 main().catch((err) => {

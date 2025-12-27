@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 
 export async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
@@ -51,4 +52,20 @@ export function getGitUsername(): string {
 
 export function slugifyPath(str: string): string {
   return str.toLowerCase().trim().replace(/\s+/g, '-');
+}
+
+export function getHostname(): string {
+  const hostname = os.hostname();
+  // Remove .local, .lan, etc. suffixes and slugify
+  return hostname
+    .replace(/\.local$|\.lan$|\.home$/i, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+export function getUserIdentifier(): string {
+  const username = slugifyPath(getGitUsername());
+  const hostname = getHostname();
+  return `${username}@${hostname}`;
 }
