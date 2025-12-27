@@ -174,10 +174,16 @@ function buildSession(
   };
 }
 
+function truncateTitle(text: string, maxLen = 60): string {
+  const oneLine = text.split('\n')[0].trim();
+  return oneLine.length > maxLen ? oneLine.slice(0, maxLen) + '...' : oneLine;
+}
+
 function generateMarkdown(session: Session, username: string): string {
   const lines: string[] = [];
+  const title = truncateTitle(session.summary);
 
-  lines.push(`# Cursor: ${session.summary}`);
+  lines.push(`# Cursor: ${title}`);
   lines.push('');
   lines.push('Tool: Cursor');
   lines.push('');

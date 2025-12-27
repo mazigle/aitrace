@@ -11,12 +11,11 @@ interface ClaudeMessage {
   };
   timestamp?: string;
   sessionId?: string;
-  summary?: string;
 }
 
 interface Session {
   id: string;
-  summary: string;
+  firstUserMessage: string;
   firstTimestamp: Date;
   lastTimestamp: Date;
   entries: SessionEntry[];
@@ -99,18 +98,13 @@ async function parseJsonlFile(filePath: string): Promise<ClaudeMessage[]> {
 
 function buildSession(messages: ClaudeMessage[], sessionId: string): Session | null {
   const entries: SessionEntry[] = [];
-  let summary = '';
+  let firstUserMessage = '';
   let firstTimestamp: Date | null = null;
   let lastTimestamp: Date | null = null;
 
   let currentEntry: SessionEntry | null = null;
 
   for (const msg of messages) {
-    // Extract summary
-    if (msg.type === 'summary' && msg.summary) {
-      summary = msg.summary;
-    }
-
     // Track timestamps
     if (msg.timestamp) {
       const ts = new Date(msg.timestamp);
@@ -122,6 +116,7 @@ function buildSession(messages: ClaudeMessage[], sessionId: string): Session | n
     if (msg.type === 'user' && msg.message?.role === 'user') {
       const content = extractTextContent(msg.message);
       if (content && msg.timestamp) {
+        if (!firstUserMessage) firstUserMessage = content;
         if (currentEntry) entries.push(currentEntry);
         currentEntry = {
           timestamp: new Date(msg.timestamp),
@@ -134,7 +129,6 @@ function buildSession(messages: ClaudeMessage[], sessionId: string): Session | n
     if (msg.type === 'assistant' && msg.message?.role === 'assistant' && currentEntry) {
       const text = extractTextContent(msg.message);
       if (text) {
-        // Append if there's already assistant text
         currentEntry.assistantMessage = currentEntry.assistantMessage
           ? currentEntry.assistantMessage + '\n\n' + text
           : text;
@@ -147,17 +141,23 @@ function buildSession(messages: ClaudeMessage[], sessionId: string): Session | n
 
   return {
     id: sessionId,
-    summary: summary || 'Untitled Session',
+    firstUserMessage: firstUserMessage || 'Untitled Session',
     firstTimestamp,
     lastTimestamp: lastTimestamp || firstTimestamp,
     entries,
   };
 }
 
+function truncateTitle(text: string, maxLen = 60): string {
+  const oneLine = text.split('\n')[0].trim();
+  return oneLine.length > maxLen ? oneLine.slice(0, maxLen) + '...' : oneLine;
+}
+
 function generateMarkdown(session: Session, username: string): string {
   const lines: string[] = [];
+  const title = truncateTitle(session.firstUserMessage);
 
-  lines.push(`# Claude Code: ${session.summary}`);
+  lines.push(`# Claude Code: ${title}`);
   lines.push('');
   lines.push('Tool: Claude Code');
   lines.push('');
@@ -242,7 +242,7 @@ export async function copyClaudeLogs(
 
       if (session) {
         const markdown = generateMarkdown(session, username);
-        const filename = formatFilename(session.firstTimestamp, session.id, session.summary);
+        const filename = formatFilename(session.firstTimestamp, session.id, session.firstUserMessage);
         await fs.writeFile(path.join(destDir, filename), markdown);
         processedCount++;
       }

@@ -41,15 +41,9 @@ export function getHomeDir(): string {
 
 export function getGitUsername(): string {
   try {
-    const name = execSync('git config user.name', { encoding: 'utf-8' }).trim();
-    return slugify(name);
+    return execSync('git config user.name', { encoding: 'utf-8' }).trim();
   } catch {
-    // Fallback to OS username
     return process.env.USER || process.env.USERNAME || 'unknown';
   }
-}
-
-function slugify(str: string): string {
-  return str.toLowerCase().trim().replace(/\s+/g, '-');
 }
 
