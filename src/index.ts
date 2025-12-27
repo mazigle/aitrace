@@ -38,6 +38,7 @@ Commands:
 
 Options:
   -o, --output <path>  Output directory (for dump command)
+  -c, --count          Show session counts in list
   -v, --verbose        Show debug output
   -h, --help           Show this help message
 
@@ -45,6 +46,7 @@ Examples:
   npx ailog                    # Dump logs for current project
   npx ailog list               # Show available projects
   npx ailog list --all         # Show all projects including remote
+  npx ailog list --count       # Show projects with session counts
   npx ailog dump 1             # Dump project #1 to its location
   npx ailog dump 1 -o ./logs   # Dump project #1 to ./logs
   npx ailog clean              # Remove your logs only
@@ -72,7 +74,7 @@ function shortenPath(fullPath: string): string {
   return fullPath;
 }
 
-async function printProjectList(showAll: boolean) {
+async function printProjectList(showAll: boolean, showCount: boolean) {
   const allProjects = await listProjects();
 
   if (allProjects.length === 0) {
@@ -97,12 +99,16 @@ async function printProjectList(showAll: boolean) {
     const idx = String(i + 1).padStart(maxIdxWidth, ' ');
     const dateStr = formatDate(p.lastActivity);
 
-    // Get session count
-    let sessionCount = 0;
-    if (p.tool === 'Claude') {
-      sessionCount = await countClaudeSessions(p.path);
-    } else if (p.tool === 'Cursor') {
-      sessionCount = countCursorSessions(p.path);
+    // Get session count if requested
+    let sessionInfo = '';
+    if (showCount) {
+      let sessionCount = 0;
+      if (p.tool === 'Claude') {
+        sessionCount = await countClaudeSessions(p.path);
+      } else if (p.tool === 'Cursor') {
+        sessionCount = countCursorSessions(p.path);
+      }
+      sessionInfo = sessionCount > 0 ? ` (${sessionCount})` : '';
     }
 
     // For remote projects, show hostname:path format
@@ -118,7 +124,6 @@ async function printProjectList(showAll: boolean) {
       }
     }
 
-    const sessionInfo = sessionCount > 0 ? ` (${sessionCount})` : '';
     log(`  ${idx}. ${dateStr}  ${displayPath}  [${p.tool}]${sessionInfo}${statusTag}`);
   }
 
@@ -218,6 +223,7 @@ async function main() {
   }
 
   const showAll = args.includes('--all');
+  const showCount = args.includes('--count') || args.includes('-c');
 
   // Parse --output / -o
   let outputPath: string | undefined;
@@ -231,7 +237,7 @@ async function main() {
 
   // Handle commands
   if (command === 'list') {
-    await printProjectList(showAll);
+    await printProjectList(showAll, showCount);
     return;
   }
 

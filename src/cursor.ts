@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { Session, SessionEntry } from './format.js';
 import { formatFilename, generateMarkdown } from './format.js';
 import { getCursorDbPath } from './paths.js';
-import { debug, ensureDir, exists, log, logError } from './utils.js';
+import { debug, ensureDir, exists, log } from './utils.js';
 
 interface Bubble {
   type: number; // 1 = user, 2 = assistant
@@ -77,7 +77,7 @@ function buildSession(
 
     const { bubble, json } = item;
 
-    if (bubble.type === 1 && bubbleBelongsToProject(json, projectPath)) {
+    if (bubbleBelongsToProject(json, projectPath)) {
       belongsToProject = true;
     }
 
@@ -120,63 +120,15 @@ function parseBubbleKey(key: string): { composerId: string; bubbleId: string } |
   return { composerId: match[1], bubbleId: match[2] };
 }
 
-export function countCursorSessions(projectPath: string): number {
+function getCursorSessions(projectPath: string): Session[] {
   const dbPath = getCursorDbPath();
+  const sessions: Session[] = [];
 
   let db: Database.Database;
   try {
     db = new Database(dbPath, { readonly: true });
-  } catch (e) {
-    return 0;
-  }
-
-  try {
-    const escapedPath = projectPath.replace(/'/g, "''");
-    const bubbleRows = db
-      .prepare(
-        `SELECT key FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%${escapedPath}%'`
-      )
-      .all() as KVRow[];
-
-    const composerIds = new Set<string>();
-    for (const row of bubbleRows) {
-      const parsed = parseBubbleKey(row.key);
-      if (parsed) {
-        composerIds.add(parsed.composerId);
-      }
-    }
-
-    return composerIds.size;
   } catch {
-    return 0;
-  } finally {
-    db.close();
-  }
-}
-
-export async function copyCursorLogs(
-  targetDir: string,
-  projectPath: string,
-  username: string
-): Promise<void> {
-  const dbPath = getCursorDbPath();
-
-  if (!(await exists(dbPath))) {
-    log('Cursor state database not found');
-    return;
-  }
-
-  log('Processing Cursor logs...');
-  const destDir = path.join(targetDir, 'cursor');
-  await ensureDir(destDir);
-
-  let db: Database.Database;
-  try {
-    db = new Database(dbPath, { readonly: true });
-  } catch (e) {
-    logError('opening Cursor database', e);
-    log('   Could not access Cursor database. Make sure Cursor is installed.');
-    return;
+    return sessions;
   }
 
   try {
@@ -186,9 +138,7 @@ export async function copyCursorLogs(
       .all() as KVRow[];
 
     if (composerRows.length === 0) {
-      log('   No Cursor conversations found');
-      db.close();
-      return;
+      return sessions;
     }
 
     const composerMap = new Map<string, string>();
@@ -205,9 +155,7 @@ export async function copyCursorLogs(
       .all() as KVRow[];
 
     const matchingComposerIds = new Set<string>();
-    let skippedCount = 0;
 
-    // First pass: find composer IDs
     for (const row of initialBubbleRows) {
       const parsed = parseBubbleKey(row.key);
       if (parsed) {
@@ -216,9 +164,7 @@ export async function copyCursorLogs(
     }
 
     if (matchingComposerIds.size === 0) {
-      log('   No Cursor conversations found for this project');
-      db.close();
-      return;
+      return sessions;
     }
 
     // Single optimized query: get all bubbles for matching composers
@@ -240,23 +186,15 @@ export async function copyCursorLogs(
         const parsedBubble = JSON.parse(row.value);
         if (!isValidBubble(parsedBubble)) {
           debug(`Invalid bubble structure: ${row.key}`);
-          skippedCount++;
           continue;
         }
         allBubbles.set(`${parsed.composerId}:${parsed.bubbleId}`, { bubble: parsedBubble, json: row.value });
       } catch (e) {
         debug(`Failed to parse bubble JSON: ${(e as Error).message}`);
-        skippedCount++;
       }
     }
 
-    if (skippedCount > 0) {
-      debug(`Skipped ${skippedCount} invalid bubbles`);
-    }
-
     // Process matching composers
-    let processedCount = 0;
-
     for (const composerId of matchingComposerIds) {
       const composerJson = composerMap.get(`composerData:${composerId}`);
       if (!composerJson) continue;
@@ -273,20 +211,52 @@ export async function copyCursorLogs(
         }
 
         const session = buildSession(composerBubbles, composerData, projectPath);
-
         if (session) {
-          const markdown = generateMarkdown(session, username, 'Cursor');
-          const filename = formatFilename(session.firstTimestamp, session.id, session.firstUserMessage);
-          await fs.writeFile(path.join(destDir, filename), markdown);
-          processedCount++;
+          sessions.push(session);
         }
       } catch (e) {
         debug(`Failed to process composer ${composerId}: ${(e as Error).message}`);
       }
     }
-
-    log(`   Processed ${processedCount} sessions`);
   } finally {
     db.close();
   }
+
+  return sessions;
+}
+
+export function countCursorSessions(projectPath: string): number {
+  return getCursorSessions(projectPath).length;
+}
+
+export async function copyCursorLogs(
+  targetDir: string,
+  projectPath: string,
+  username: string
+): Promise<void> {
+  const dbPath = getCursorDbPath();
+
+  if (!(await exists(dbPath))) {
+    log('Cursor state database not found');
+    return;
+  }
+
+  log('Processing Cursor logs...');
+  const destDir = path.join(targetDir, 'cursor');
+  await ensureDir(destDir);
+
+  const sessions = getCursorSessions(projectPath);
+
+  if (sessions.length === 0) {
+    log('   No Cursor conversations found for this project');
+    return;
+  }
+
+  for (const session of sessions) {
+    const markdown = generateMarkdown(session, username, 'Cursor');
+    const filename = formatFilename(session.firstTimestamp, session.id, session.firstUserMessage);
+    await fs.writeFile(path.join(destDir, filename), markdown);
+  }
+
+  log(`   Processed ${sessions.length} sessions`);
 }
