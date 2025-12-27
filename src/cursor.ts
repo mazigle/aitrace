@@ -12,6 +12,7 @@ interface Bubble {
   text?: string;
   bubbleId: string;
   attachedFileCodeChunksUris?: Array<{ path: string }>;
+  codeBlocks?: Array<{ uri?: { path?: string } }>;
   timingInfo?: {
     clientStartTime?: number;
     clientRpcSendTime?: number;
@@ -38,15 +39,18 @@ function getTimestampFromBubble(bubble: Bubble): Date {
   return new Date();
 }
 
-function bubbleBelongsToProject(bubble: Bubble, projectPath: string): boolean {
-  if (!bubble.attachedFileCodeChunksUris?.length) return false;
-  return bubble.attachedFileCodeChunksUris.some((uri) =>
-    uri.path?.startsWith(projectPath)
-  );
+function bubbleBelongsToProject(bubbleJson: string, projectPath: string): boolean {
+  // Simple string check - if project path appears anywhere in the bubble JSON
+  return bubbleJson.includes(projectPath);
+}
+
+interface BubbleWithJson {
+  bubble: Bubble;
+  json: string;
 }
 
 function buildSession(
-  bubbles: Map<string, Bubble>,
+  bubbles: Map<string, BubbleWithJson>,
   composerData: ComposerData,
   projectPath: string
 ): Session | null {
@@ -58,10 +62,12 @@ function buildSession(
   let currentEntry: SessionEntry | null = null;
 
   for (const header of composerData.fullConversationHeadersOnly) {
-    const bubble = bubbles.get(header.bubbleId);
-    if (!bubble) continue;
+    const item = bubbles.get(header.bubbleId);
+    if (!item) continue;
 
-    if (bubble.type === 1 && bubbleBelongsToProject(bubble, projectPath)) {
+    const { bubble, json } = item;
+
+    if (bubble.type === 1 && bubbleBelongsToProject(json, projectPath)) {
       belongsToProject = true;
     }
 
@@ -155,7 +161,7 @@ export async function copyCursorLogs(
       .all() as KVRow[];
 
     const matchingComposerIds = new Set<string>();
-    const allBubbles = new Map<string, Bubble>();
+    const allBubbles = new Map<string, BubbleWithJson>();
 
     for (const row of bubbleRows) {
       const parsed = parseBubbleKey(row.key);
@@ -164,7 +170,7 @@ export async function copyCursorLogs(
       try {
         const bubble: Bubble = JSON.parse(row.value);
         matchingComposerIds.add(parsed.composerId);
-        allBubbles.set(`${parsed.composerId}:${parsed.bubbleId}`, bubble);
+        allBubbles.set(`${parsed.composerId}:${parsed.bubbleId}`, { bubble, json: row.value });
       } catch (e) {
         debug(`Failed to parse bubble JSON: ${(e as Error).message}`);
       }
@@ -189,7 +195,8 @@ export async function copyCursorLogs(
         const key = `${parsed.composerId}:${parsed.bubbleId}`;
         if (!allBubbles.has(key)) {
           try {
-            allBubbles.set(key, JSON.parse(row.value));
+            const bubble: Bubble = JSON.parse(row.value);
+            allBubbles.set(key, { bubble, json: row.value });
           } catch {
             // Skip invalid JSON
           }
@@ -207,11 +214,11 @@ export async function copyCursorLogs(
       try {
         const composerData: ComposerData = JSON.parse(composerJson);
 
-        const composerBubbles = new Map<string, Bubble>();
-        for (const [key, bubble] of allBubbles) {
+        const composerBubbles = new Map<string, BubbleWithJson>();
+        for (const [key, item] of allBubbles) {
           if (key.startsWith(`${composerId}:`)) {
             const bubbleId = key.slice(composerId.length + 1);
-            composerBubbles.set(bubbleId, bubble);
+            composerBubbles.set(bubbleId, item);
           }
         }
 

@@ -90,6 +90,10 @@ export function formatRelativeTime(date: Date): string {
 }
 
 export function formatDate(date: Date): string {
+  // 1970-01-01 (epoch) means no valid timestamp
+  if (date.getTime() === 0) {
+    return '----------';
+  }
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');

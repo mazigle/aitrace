@@ -71,9 +71,9 @@ async function getClaudeProjects(): Promise<Map<string, ClaudeProject>> {
   return projects;
 }
 
-// Parse vscode-remote URI: vscode-remote://ssh-remote%2B{host}/{path}
-function parseVscodeRemoteUri(uri: string): { path: string; isRemote: boolean } | null {
-  // Check for SSH remote pattern
+// Parse URI and extract file path
+function parseUri(uri: string): { path: string; isRemote: boolean } | null {
+  // Check for SSH remote pattern: vscode-remote://ssh-remote%2B{host}/{path}
   const sshMatch = uri.match(/^vscode-remote:\/\/ssh-remote%2B[^/]+(.+)$/);
   if (sshMatch) {
     return { path: sshMatch[1], isRemote: true };
@@ -85,19 +85,68 @@ function parseVscodeRemoteUri(uri: string): { path: string; isRemote: boolean } 
     return { path: otherRemoteMatch[1], isRemote: true };
   }
 
+  // Check for file:// URI
+  const fileMatch = uri.match(/^file:\/\/(.+)$/);
+  if (fileMatch) {
+    return { path: fileMatch[1], isRemote: false };
+  }
+
+  // Plain path starting with /
+  if (uri.startsWith('/')) {
+    return { path: uri, isRemote: false };
+  }
+
   return null;
 }
 
 // Extract project root from a file path
+// Project roots are typically at depth 4-5: /Users/{user}/{repos}/{project} or /home/{user}/{repos}/{project}
 function extractProjectRoot(filePath: string): string | null {
-  const parts = filePath.split('/');
-  for (let i = parts.length - 1; i >= 3; i--) {
-    const candidate = parts.slice(0, i).join('/');
-    if (candidate && !candidate.includes('node_modules')) {
-      return candidate;
+  const parts = filePath.split('/').filter(Boolean);
+
+  // Skip system paths, hidden paths, and application paths
+  if (
+    filePath.includes('/Library/') ||
+    filePath.includes('/Applications/') ||
+    filePath.includes('/.') ||
+    filePath.includes('/node_modules/')
+  ) {
+    return null;
+  }
+
+  // macOS: /Users/{user}/{repos}/{project} -> depth 4 (indices 0-3)
+  // Linux: /home/{user}/{repos}/{project} -> depth 4
+  // Also handle: /Users/{user}/workspace/{project}, /home/{user}/repo/{project}, etc.
+
+  // Common repo folder names
+  const repoFolders = ['repo', 'repos', 'workspace', 'projects', 'code', 'dev', 'work', 'personal'];
+
+  // Look for pattern: /Users|home/{user}/{repoFolder}/{project}
+  if (parts.length >= 4 && (parts[0] === 'Users' || parts[0] === 'home')) {
+    // Check if parts[2] is a repo folder
+    if (repoFolders.includes(parts[2].toLowerCase())) {
+      // Project root is at depth 4: /Users/{user}/{repos}/{project}
+      return '/' + parts.slice(0, 4).join('/');
+    }
+
+    // Otherwise, assume depth 3 is the project: /Users/{user}/{project}
+    // But only if it's not a system folder
+    if (!['Library', 'Applications', 'Documents', 'Desktop', 'Downloads'].includes(parts[2])) {
+      return '/' + parts.slice(0, 3).join('/');
     }
   }
+
+  // Fallback: for other patterns, try to find a reasonable root
+  // Look for common project indicators by checking parent directories
+  if (parts.length >= 3) {
+    return '/' + parts.slice(0, Math.min(4, parts.length)).join('/');
+  }
+
   return null;
+}
+
+interface ComposerRow {
+  value: string;
 }
 
 function getCursorProjects(): Map<string, CursorProject> {
@@ -113,117 +162,92 @@ function getCursorProjects(): Map<string, CursorProject> {
   }
 
   try {
-    // Query for bubbles with file attachments and timing info
+    // First, get timestamps from composerData (has createdAt field)
+    const composerTimestamps = new Map<string, Date>();
+    const composerRows = db
+      .prepare("SELECT value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")
+      .all() as ComposerRow[];
+
+    const createdAtRegex = /"createdAt"\s*:\s*(\d+)/;
+
+    for (const row of composerRows) {
+      if (!row.value) continue;
+
+      // Extract createdAt timestamp
+      const timeMatch = row.value.match(createdAtRegex);
+      const timestamp = timeMatch ? new Date(parseInt(timeMatch[1], 10)) : null;
+
+      // Extract file paths from external URIs (use matchAll to avoid lastIndex issues)
+      const externalMatches = row.value.matchAll(/"external"\s*:\s*"([^"]+)"/g);
+      for (const match of externalMatches) {
+        const rawUri = match[1];
+
+        // Parse URI to extract path
+        const uriInfo = parseUri(rawUri);
+        if (!uriInfo) continue;
+
+        const { path: filePath, isRemote } = uriInfo;
+
+        const projectRoot = extractProjectRoot(filePath);
+        if (!projectRoot) continue;
+
+        const existing = projects.get(projectRoot);
+        const existingTime = existing?.lastActivity.getTime() || 0;
+        const newTime = timestamp?.getTime() || 0;
+
+        if (!existing || newTime > existingTime) {
+          projects.set(projectRoot, {
+            path: projectRoot,
+            isRemote: existing?.isRemote || isRemote,
+            lastActivity: timestamp || new Date(0),
+          });
+        } else if (isRemote && !existing.isRemote) {
+          existing.isRemote = true;
+        }
+      }
+    }
+
+    // Also check bubbleId data for additional paths and timestamps
     const bubbleRows = db
       .prepare(
         "SELECT value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%attachedFileCodeChunksUris%'"
       )
       .all() as { value: string }[];
 
-    const pathRegex = /"path"\s*:\s*"([^"]+)"/g;
     const timeRegex = /"clientRpcSendTime"\s*:\s*(\d+)/;
 
     for (const row of bubbleRows) {
+      if (!row.value) continue;
+
       const timeMatch = row.value.match(timeRegex);
-      const timestamp = timeMatch ? new Date(parseInt(timeMatch[1], 10)) : new Date(0);
+      const timestamp = timeMatch ? new Date(parseInt(timeMatch[1], 10)) : null;
 
-      let match;
-      while ((match = pathRegex.exec(row.value)) !== null) {
+      // Use matchAll to avoid lastIndex issues with global regex
+      const pathMatches = row.value.matchAll(/"path"\s*:\s*"([^"]+)"/g);
+      for (const match of pathMatches) {
         const rawPath = match[1];
-        let filePath = rawPath;
-        let isRemote = false;
 
-        // Check if it's a vscode-remote URI
-        const remoteInfo = parseVscodeRemoteUri(rawPath);
-        if (remoteInfo) {
-          filePath = remoteInfo.path;
-          isRemote = remoteInfo.isRemote;
-        }
+        // Parse URI to extract path
+        const uriInfo = parseUri(rawPath);
+        if (!uriInfo) continue;
+
+        const { path: filePath, isRemote } = uriInfo;
 
         const projectRoot = extractProjectRoot(filePath);
-        if (projectRoot) {
-          const existing = projects.get(projectRoot);
-          if (!existing || timestamp > existing.lastActivity) {
-            projects.set(projectRoot, {
-              path: projectRoot,
-              isRemote: existing?.isRemote || isRemote,
-              lastActivity: timestamp,
-            });
-          } else if (isRemote && !existing.isRemote) {
-            // If we found a remote reference, mark it as remote
-            existing.isRemote = true;
-          }
-        }
-      }
-    }
+        if (!projectRoot) continue;
 
-    // Also check composerData for workspace paths and remote URIs
-    const composerRows = db
-      .prepare("SELECT value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")
-      .all() as { value: string }[];
+        const existing = projects.get(projectRoot);
+        const existingTime = existing?.lastActivity.getTime() || 0;
+        const newTime = timestamp?.getTime() || 0;
 
-    // Look for various URI patterns in workspace data
-    const externalRegex = /"external"\s*:\s*"([^"]+)"/g;
-    const folderRegex = /"folder"\s*:\s*"([^"]+)"/g;
-    const fsPathRegex = /"fsPath"\s*:\s*"([^"]+)"/g;
-
-    for (const row of composerRows) {
-      let match;
-
-      // Check external URIs (can contain vscode-remote://)
-      while ((match = externalRegex.exec(row.value)) !== null) {
-        const rawUri = match[1];
-        const remoteInfo = parseVscodeRemoteUri(rawUri);
-
-        if (remoteInfo) {
-          const projectRoot = extractProjectRoot(remoteInfo.path);
-          if (projectRoot) {
-            const existing = projects.get(projectRoot);
-            if (!existing) {
-              projects.set(projectRoot, {
-                path: projectRoot,
-                isRemote: true,
-                lastActivity: new Date(0),
-              });
-            } else {
-              existing.isRemote = true;
-            }
-          }
-        }
-      }
-
-      // Check folder URIs (can also contain vscode-remote://)
-      while ((match = folderRegex.exec(row.value)) !== null) {
-        const rawUri = match[1];
-        const remoteInfo = parseVscodeRemoteUri(rawUri);
-
-        if (remoteInfo) {
-          const projectRoot = extractProjectRoot(remoteInfo.path);
-          if (projectRoot) {
-            const existing = projects.get(projectRoot);
-            if (!existing) {
-              projects.set(projectRoot, {
-                path: projectRoot,
-                isRemote: true,
-                lastActivity: new Date(0),
-              });
-            } else {
-              existing.isRemote = true;
-            }
-          }
-        }
-      }
-
-      // Check fsPath (local paths)
-      while ((match = fsPathRegex.exec(row.value)) !== null) {
-        const filePath = match[1];
-        const projectRoot = extractProjectRoot(filePath);
-        if (projectRoot && !projects.has(projectRoot)) {
+        if (!existing || newTime > existingTime) {
           projects.set(projectRoot, {
             path: projectRoot,
-            isRemote: false,
-            lastActivity: new Date(0),
+            isRemote: existing?.isRemote || isRemote,
+            lastActivity: timestamp || new Date(0),
           });
+        } else if (isRemote && !existing.isRemote) {
+          existing.isRemote = true;
         }
       }
     }
@@ -260,8 +284,7 @@ export async function listProjects(options: ListProjectsOptions = {}): Promise<P
     // Filter out inaccessible paths unless explicitly requested
     if (!includeInaccessible) {
       const accessible = await exists(p);
-      if (!accessible && !isRemote) continue; // Skip missing local projects
-      if (!accessible) continue; // Skip remote projects too in default view
+      if (!accessible) continue;
     }
 
     // Get the most recent activity from either tool
