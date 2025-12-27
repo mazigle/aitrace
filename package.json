@@ -21,6 +21,14 @@
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mazigle/aitrace.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mazigle/aitrace/issues"
+  },
+  "homepage": "https://github.com/mazigle/aitrace#readme",
   "dependencies": {
     "better-sqlite3": "^12.5.0",
     "tsx": "^4.7.0"
