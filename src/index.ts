@@ -193,17 +193,13 @@ async function dumpProject(projectIndex: number, outputPath?: string) {
 
   // Determine output directory
   let baseDir: string;
-  const accessible = await canAccessPath(project.path);
 
   if (outputPath) {
     baseDir = path.resolve(outputPath, OUTPUT_DIR);
-  } else if (!accessible && selectedProject.tool === 'Claude') {
-    // Claude logs are stored locally, can't dump to remote location
-    baseDir = path.join(process.cwd(), OUTPUT_DIR);
-    log(`Note: Project is not locally accessible. Dumping to current directory.`);
   } else {
-    // Default: dump to project location (works for both local and Cursor remote)
-    // Cursor reads from local DB, so we can write to remote path
+    // Dump to project location
+    // For Cursor: reads from local DB, can write to remote path
+    // For Claude: only supports local projects
     baseDir = path.join(project.path, OUTPUT_DIR);
   }
 
