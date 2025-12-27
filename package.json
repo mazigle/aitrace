@@ -1,0 +1,31 @@
+{
+  "name": "ailog",
+  "version": "0.1.0",
+  "description": "CLI tool to collect Claude Code and Cursor logs",
+  "type": "module",
+  "bin": {
+    "ailog": "./src/cli.js"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "start": "tsx src/index.ts"
+  },
+  "keywords": [
+    "claude",
+    "cursor",
+    "logs",
+    "cli",
+    "ai"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "tsx": "^4.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0"
+  }
+}
+
