@@ -1,26 +1,26 @@
-# ailog
+# aitrace
 
 CLI tool to collect and export Claude Code and Cursor conversation logs as markdown files.
 
 ## Installation
 
 ```bash
-npm install -g ailog
+npm install -g aitrace
 # or use directly with npx
-npx ailog
+npx aitrace
 ```
 
 ## Quick Start
 
 ```bash
 # In a project directory with Claude/Cursor history
-npx ailog
+npx aitrace
 
 # List all projects with AI conversation history
-npx ailog list
+npx aitrace list
 
 # Dump logs for a specific project
-npx ailog dump 1
+npx aitrace dump 1
 ```
 
 ## Commands
@@ -30,10 +30,10 @@ npx ailog dump 1
 Shows all projects that have Claude Code or Cursor conversation history.
 
 ```bash
-npx ailog list              # Show top 10 projects
-npx ailog list --all        # Show all projects
-npx ailog list --count      # Show session counts
-npx ailog list -c           # Short form
+npx aitrace list              # Show top 10 projects
+npx aitrace list --all        # Show all projects
+npx aitrace list --count      # Show session counts
+npx aitrace list -c           # Short form
 ```
 
 Output example:
@@ -44,7 +44,7 @@ Projects:
    2. 2025-12-27  ~/repo/myproject  [Cursor] (12)
    3. 2025-12-27  user@server:/home/user/repo/project  [Cursor] (5)
 
-Usage: npx ailog dump <N>
+Usage: npx aitrace dump <N>
 ```
 
 ### `dump` - Export Logs
@@ -52,8 +52,8 @@ Usage: npx ailog dump <N>
 Exports conversation logs to markdown files.
 
 ```bash
-npx ailog dump 1              # Dump project #1 to its directory
-npx ailog dump 1 -o ./logs    # Dump to custom output directory
+npx aitrace dump 1              # Dump project #1 to its directory
+npx aitrace dump 1 -o ./logs    # Dump to custom output directory
 ```
 
 ### `clean` - Remove Logs
@@ -61,8 +61,8 @@ npx ailog dump 1 -o ./logs    # Dump to custom output directory
 Removes exported log files.
 
 ```bash
-npx ailog clean         # Remove your logs only
-npx ailog clean --all   # Remove all ailog data
+npx aitrace clean         # Remove your logs only
+npx aitrace clean --all   # Remove all aitrace data
 ```
 
 ### Default (no command)
@@ -71,7 +71,7 @@ When run in a project directory that has AI history, dumps logs for both Claude 
 
 ```bash
 cd ~/repo/myproject
-npx ailog
+npx aitrace
 ```
 
 ## Options
@@ -86,7 +86,7 @@ npx ailog
 
 ## Remote Projects (Cursor SSH)
 
-When using Cursor's SSH remote development feature, ailog detects remote projects automatically.
+When using Cursor's SSH remote development feature, aitrace detects remote projects automatically.
 
 ### How It Works
 
@@ -95,7 +95,7 @@ When using Cursor's SSH remote development feature, ailog detects remote project
    3. 2025-12-27  myserver:/home/user/repo/project  [Cursor] (5)
    ```
 
-2. **Dumping**: For remote Cursor projects, ailog:
+2. **Dumping**: For remote Cursor projects, aitrace:
    - Reads conversation data from your local Cursor database
    - Generates markdown files locally (temp directory)
    - Uploads via `scp` to the remote server
@@ -111,19 +111,19 @@ When using Cursor's SSH remote development feature, ailog detects remote project
 
 ```bash
 # List projects - shows remote projects
-npx ailog list
+npx aitrace list
 #  1. 2025-12-27  myserver:/home/user/project  [Cursor] (8)
 
 # Dump to remote server via scp
-npx ailog dump 1
-# Starting ailog...
+npx aitrace dump 1
+# Starting aitrace...
 # Project: /home/user/project
 # Tool: Cursor
-# Output: myserver:/home/user/project/ailog/username@hostname/ (via scp)
+# Output: myserver:/home/user/project/aitrace/username@hostname/ (via scp)
 # Processing Cursor logs...
 #    Processed 8 sessions
 # Uploading to remote server...
-# Done! Logs uploaded to myserver:/home/user/project/ailog/username@hostname/
+# Done! Logs uploaded to myserver:/home/user/project/aitrace/username@hostname/
 ```
 
 ### Local Override
@@ -131,7 +131,7 @@ npx ailog dump 1
 To dump remote project logs locally instead:
 
 ```bash
-npx ailog dump 1 -o ./local-logs
+npx aitrace dump 1 -o ./local-logs
 ```
 
 ## Output Structure
@@ -140,7 +140,7 @@ Logs are organized by user identifier (`username@hostname`):
 
 ```
 project/
-└── ailog/
+└── aitrace/
     └── username@hostname/
         ├── claude/
         │   ├── 2025-12-28_abc123_initial-setup.md

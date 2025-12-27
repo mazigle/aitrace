@@ -18,15 +18,15 @@ import {
   setVerbose,
 } from './utils.js';
 
-const OUTPUT_DIR = 'ailog';
+const OUTPUT_DIR = 'aitrace';
 const DEFAULT_LIST_LIMIT = 10;
 
 function printHelp() {
   console.log(`
-ailog - Collect Claude Code and Cursor logs
+aitrace - Collect Claude Code and Cursor logs
 
 Usage:
-  npx ailog [command] [options]
+  npx aitrace [command] [options]
 
 Commands:
   (none)        Dump logs for current project
@@ -34,7 +34,7 @@ Commands:
   list --all    List all projects (including remote/missing)
   dump <N>      Dump logs for project N (from list)
   clean         Remove your logs from current directory
-  clean --all   Remove all ailog data from current directory
+  clean --all   Remove all aitrace data from current directory
 
 Options:
   -o, --output <path>  Output directory (for dump command)
@@ -44,14 +44,14 @@ Options:
   -h, --help           Show this help message
 
 Examples:
-  npx ailog                    # Dump logs for current project
-  npx ailog list               # Show available projects
-  npx ailog list --all         # Show all projects including remote
-  npx ailog list --count       # Show projects with session counts
-  npx ailog dump 1             # Dump project #1 to its location
-  npx ailog dump 1 -o ./logs   # Dump project #1 to ./logs
-  npx ailog clean              # Remove your logs only
-  npx ailog clean --all        # Remove all logs
+  npx aitrace                    # Dump logs for current project
+  npx aitrace list               # Show available projects
+  npx aitrace list --all         # Show all projects including remote
+  npx aitrace list --count       # Show projects with session counts
+  npx aitrace dump 1             # Dump project #1 to its location
+  npx aitrace dump 1 -o ./logs   # Dump project #1 to ./logs
+  npx aitrace clean              # Remove your logs only
+  npx aitrace clean --all        # Remove all logs
 `);
 }
 
@@ -60,10 +60,10 @@ function printNotInProject() {
 Not in a known project directory.
 
 Usage:
-  npx ailog              Run in a project directory to dump logs
-  npx ailog list         Show available projects
-  npx ailog dump <N>     Dump logs for project N from list
-  npx ailog --help       Show all options
+  npx aitrace              Run in a project directory to dump logs
+  npx aitrace list         Show available projects
+  npx aitrace dump <N>     Dump logs for project N from list
+  npx aitrace --help       Show all options
 `);
 }
 
@@ -132,7 +132,7 @@ async function printProjectList(showAll: boolean, showCount: boolean) {
     log(`\n  ... ${expandedProjects.length - DEFAULT_LIST_LIMIT} more`);
   }
 
-  log('\nUsage: npx ailog dump <N>');
+  log('\nUsage: npx aitrace dump <N>');
 }
 
 async function dumpProject(projectIndex: number, outputPath?: string, options: { includeAssistant?: boolean } = {}) {
@@ -164,7 +164,7 @@ async function dumpProject(projectIndex: number, outputPath?: string, options: {
     baseDir = path.resolve(outputPath, OUTPUT_DIR);
   } else if (selectedProject.isRemote && selectedProject.tool === 'Cursor') {
     // For remote Cursor: use temp directory, then scp to remote
-    baseDir = path.join(os.tmpdir(), 'ailog-temp', userIdentifier);
+    baseDir = path.join(os.tmpdir(), 'aitrace-temp', userIdentifier);
     isRemote = true;
     remoteTarget = `${selectedProject.remoteHost}:${project.path}/${OUTPUT_DIR}/${userIdentifier}/`;
   } else {
@@ -175,7 +175,7 @@ async function dumpProject(projectIndex: number, outputPath?: string, options: {
   const userDir = path.join(baseDir, userIdentifier);
   await ensureDir(userDir);
 
-  log('Starting ailog...');
+  log('Starting aitrace...');
   log(`Project: ${project.path}`);
   log(`Tool: ${selectedProject.tool}`);
   log(`User: ${username}`);
@@ -266,7 +266,7 @@ async function main() {
   if (command === 'dump') {
     const numArg = args.find((a) => /^\d+$/.test(a));
     if (!numArg) {
-      console.error('Error: dump requires a project number. Use "ailog list" first.');
+      console.error('Error: dump requires a project number. Use "aitrace list" first.');
       process.exit(1);
     }
     await dumpProject(parseInt(numArg, 10), outputPath, markdownOptions);
@@ -282,13 +282,13 @@ async function main() {
       if (await exists(baseDir)) {
         try {
           await fs.rm(baseDir, { recursive: true });
-          log('Cleaned up all ailog data');
+          log('Cleaned up all aitrace data');
         } catch (e) {
-          logError('cleaning ailog directory', e);
+          logError('cleaning aitrace directory', e);
           process.exit(1);
         }
       } else {
-        log('No ailog folder to clean');
+        log('No aitrace folder to clean');
       }
     } else {
       // Clean only current user's folder
@@ -326,7 +326,7 @@ async function main() {
 
   await ensureDir(userDir);
 
-  log('Starting ailog...');
+  log('Starting aitrace...');
   log(`Project: ${projectPath}`);
   log(`User: ${username}`);
 

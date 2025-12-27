@@ -1,10 +1,10 @@
 {
-  "name": "ailog",
+  "name": "aitrace",
   "version": "0.1.0",
   "description": "CLI tool to collect coding agent logs",
   "type": "module",
   "bin": {
-    "ailog": "./src/cli.js"
+    "aitrace": "./src/cli.js"
   },
   "files": [
     "src"
