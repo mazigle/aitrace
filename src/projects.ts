@@ -1,5 +1,5 @@
 // Project discovery and listing
-import { execSync } from 'node:child_process';
+import Database from 'better-sqlite3';
 import fs from 'node:fs/promises';
 
 import { decodeProjectPath, getClaudeProjectsRoot, getCursorDbPath } from './paths.js';
@@ -9,6 +9,11 @@ export interface Project {
   path: string;
   hasClaude: boolean;
   hasCursor: boolean;
+}
+
+interface KVRow {
+  key: string;
+  value: string;
 }
 
 async function getClaudeProjects(): Promise<Set<string>> {
@@ -38,57 +43,67 @@ function getCursorProjects(): Set<string> {
   const projects = new Set<string>();
   const dbPath = getCursorDbPath();
 
+  let db: Database.Database;
+  try {
+    db = new Database(dbPath, { readonly: true });
+  } catch (e) {
+    debug(`Failed to open Cursor database: ${(e as Error).message}`);
+    return projects;
+  }
+
   try {
     // Query for all unique project paths from bubbles that have file attachments
-    const result = execSync(
-      `sqlite3 "${dbPath}" "SELECT DISTINCT value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%attachedFileCodeChunksUris%'" 2>/dev/null`,
-      { encoding: 'utf-8', timeout: 30000, maxBuffer: 50 * 1024 * 1024 }
-    );
+    const bubbleRows = db
+      .prepare(
+        "SELECT DISTINCT value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%attachedFileCodeChunksUris%'"
+      )
+      .all() as { value: string }[];
 
     // Extract unique project roots from file paths
     const pathRegex = /"path"\s*:\s*"([^"]+)"/g;
-    let match;
-    while ((match = pathRegex.exec(result)) !== null) {
-      const filePath = match[1];
-      // Extract project root (assume it's up to a common depth)
-      // e.g., /Users/donghyun/repo/project/src/file.ts -> /Users/donghyun/repo/project
-      const parts = filePath.split('/');
-      // Find likely project root (where common dirs like src, lib, node_modules would be)
-      for (let i = parts.length - 1; i >= 3; i--) {
-        const candidate = parts.slice(0, i).join('/');
-        if (candidate && !candidate.includes('node_modules')) {
-          projects.add(candidate);
-          break;
+    for (const row of bubbleRows) {
+      let match;
+      while ((match = pathRegex.exec(row.value)) !== null) {
+        const filePath = match[1];
+        // Extract project root (assume it's up to a common depth)
+        // e.g., /Users/donghyun/repo/project/src/file.ts -> /Users/donghyun/repo/project
+        const parts = filePath.split('/');
+        // Find likely project root (where common dirs like src, lib, node_modules would be)
+        for (let i = parts.length - 1; i >= 3; i--) {
+          const candidate = parts.slice(0, i).join('/');
+          if (candidate && !candidate.includes('node_modules')) {
+            projects.add(candidate);
+            break;
+          }
+        }
+      }
+    }
+
+    // Also get from composerData workspace paths if available
+    const composerRows = db
+      .prepare("SELECT value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")
+      .all() as { value: string }[];
+
+    // Look for workspace paths in composer data
+    const workspaceRegex = /"fsPath"\s*:\s*"([^"]+)"/g;
+    for (const row of composerRows) {
+      let match;
+      while ((match = workspaceRegex.exec(row.value)) !== null) {
+        const filePath = match[1];
+        const parts = filePath.split('/');
+        for (let i = parts.length - 1; i >= 3; i--) {
+          const candidate = parts.slice(0, i).join('/');
+          if (candidate && !candidate.includes('node_modules')) {
+            projects.add(candidate);
+            break;
+          }
         }
       }
     }
   } catch (e) {
     debug(`Failed to read Cursor projects: ${(e as Error).message}`);
-  }
-
-  // Also get from composerData workspace paths if available
-  try {
-    const result = execSync(
-      `sqlite3 "${dbPath}" "SELECT value FROM cursorDiskKV WHERE key LIKE 'composerData:%'" 2>/dev/null`,
-      { encoding: 'utf-8', timeout: 30000, maxBuffer: 50 * 1024 * 1024 }
-    );
-
-    // Look for workspace paths in composer data
-    const workspaceRegex = /"fsPath"\s*:\s*"([^"]+)"/g;
-    let match;
-    while ((match = workspaceRegex.exec(result)) !== null) {
-      const filePath = match[1];
-      const parts = filePath.split('/');
-      for (let i = parts.length - 1; i >= 3; i--) {
-        const candidate = parts.slice(0, i).join('/');
-        if (candidate && !candidate.includes('node_modules')) {
-          projects.add(candidate);
-          break;
-        }
-      }
-    }
-  } catch {
-    // Ignore errors
+  } finally {
+    db.close();
   }
 
   return projects;
@@ -130,4 +145,3 @@ export async function canAccessPath(projectPath: string): Promise<boolean> {
   }
   return exists(projectPath);
 }
-

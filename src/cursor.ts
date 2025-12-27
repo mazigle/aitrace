@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import Database from 'better-sqlite3';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -26,17 +26,9 @@ interface ComposerData {
   }>;
 }
 
-function queryDb(dbPath: string, sql: string): string {
-  try {
-    return execSync(`sqlite3 "${dbPath}" "${sql}"`, {
-      encoding: 'utf-8',
-      timeout: 30000,
-      maxBuffer: 50 * 1024 * 1024,
-    });
-  } catch (e) {
-    debug(`SQLite query failed: ${(e as Error).message}`);
-    return '';
-  }
+interface KVRow {
+  key: string;
+  value: string;
 }
 
 function getTimestampFromBubble(bubble: Bubble): Date {
@@ -105,43 +97,11 @@ function buildSession(
   };
 }
 
-interface ParsedBubbleLine {
-  composerId: string;
-  bubbleId: string;
-  bubble: Bubble;
-}
-
-function parseBubbleLine(line: string): ParsedBubbleLine | null {
-  if (!line.trim()) return null;
-
-  const match = line.match(/^bubbleId:([^:]+):([^|]+)\|(.+)$/);
+function parseBubbleKey(key: string): { composerId: string; bubbleId: string } | null {
+  // bubbleId:composerId:bubbleId
+  const match = key.match(/^bubbleId:([^:]+):(.+)$/);
   if (!match) return null;
-
-  const [, composerId, bubbleId, json] = match;
-  try {
-    return { composerId, bubbleId, bubble: JSON.parse(json) };
-  } catch (e) {
-    debug(`Failed to parse bubble JSON: ${(e as Error).message}`);
-    return null;
-  }
-}
-
-function parseKeyValueOutput(output: string, keyPrefix: string): Map<string, string> {
-  const result = new Map<string, string>();
-
-  for (const line of output.split('\n')) {
-    if (!line.trim()) continue;
-
-    const prefixEnd = line.indexOf(keyPrefix) + keyPrefix.length;
-    const keyEnd = line.indexOf('|', prefixEnd);
-    if (keyEnd === -1) continue;
-
-    const key = line.slice(0, keyEnd);
-    const value = line.slice(keyEnd + 1);
-    result.set(key, value);
-  }
-
-  return result;
+  return { composerId: match[1], bubbleId: match[2] };
 }
 
 export async function copyCursorLogs(
@@ -160,90 +120,116 @@ export async function copyCursorLogs(
   const destDir = path.join(targetDir, 'cursor');
   await ensureDir(destDir);
 
-  const composerResult = queryDb(
-    dbPath,
-    "SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'"
-  );
-
-  if (!composerResult.trim()) {
-    log('   No Cursor conversations found');
+  let db: Database.Database;
+  try {
+    db = new Database(dbPath, { readonly: true });
+  } catch (e) {
+    debug(`Failed to open Cursor database: ${(e as Error).message}`);
+    log('   Could not open Cursor database');
     return;
   }
 
-  const composerMap = parseKeyValueOutput(composerResult, 'composerData:');
+  try {
+    // Get all composer data
+    const composerRows = db
+      .prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")
+      .all() as KVRow[];
 
-  const escapedPath = projectPath.replace(/'/g, "''");
-  const bubbleResult = queryDb(
-    dbPath,
-    `SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%${escapedPath}%'`
-  );
-
-  const matchingComposerIds = new Set<string>();
-  const allBubbles = new Map<string, Bubble>();
-
-  if (bubbleResult.trim()) {
-    for (const line of bubbleResult.split('\n')) {
-      const parsed = parseBubbleLine(line);
-      if (!parsed) continue;
-
-      matchingComposerIds.add(parsed.composerId);
-      allBubbles.set(`${parsed.composerId}:${parsed.bubbleId}`, parsed.bubble);
+    if (composerRows.length === 0) {
+      log('   No Cursor conversations found');
+      db.close();
+      return;
     }
-  }
 
-  if (matchingComposerIds.size === 0) {
-    log('   No Cursor conversations found for this project');
-    return;
-  }
+    const composerMap = new Map<string, string>();
+    for (const row of composerRows) {
+      composerMap.set(row.key, row.value);
+    }
 
-  for (const composerId of matchingComposerIds) {
-    const bubblesResult = queryDb(
-      dbPath,
-      `SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:${composerId}:%'`
-    );
+    // Get bubbles that contain the project path
+    const escapedPath = projectPath.replace(/'/g, "''");
+    const bubbleRows = db
+      .prepare(
+        `SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%${escapedPath}%'`
+      )
+      .all() as KVRow[];
 
-    if (!bubblesResult.trim()) continue;
+    const matchingComposerIds = new Set<string>();
+    const allBubbles = new Map<string, Bubble>();
 
-    for (const line of bubblesResult.split('\n')) {
-      const parsed = parseBubbleLine(line);
+    for (const row of bubbleRows) {
+      const parsed = parseBubbleKey(row.key);
       if (!parsed) continue;
 
-      const key = `${parsed.composerId}:${parsed.bubbleId}`;
-      if (!allBubbles.has(key)) {
-        allBubbles.set(key, parsed.bubble);
+      try {
+        const bubble: Bubble = JSON.parse(row.value);
+        matchingComposerIds.add(parsed.composerId);
+        allBubbles.set(`${parsed.composerId}:${parsed.bubbleId}`, bubble);
+      } catch (e) {
+        debug(`Failed to parse bubble JSON: ${(e as Error).message}`);
       }
     }
-  }
 
-  let processedCount = 0;
+    if (matchingComposerIds.size === 0) {
+      log('   No Cursor conversations found for this project');
+      db.close();
+      return;
+    }
 
-  for (const composerId of matchingComposerIds) {
-    const composerJson = composerMap.get(`composerData:${composerId}`);
-    if (!composerJson) continue;
+    // Get all bubbles for matching composers
+    for (const composerId of matchingComposerIds) {
+      const composerBubbleRows = db
+        .prepare(`SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:${composerId}:%'`)
+        .all() as KVRow[];
 
-    try {
-      const composerData: ComposerData = JSON.parse(composerJson);
+      for (const row of composerBubbleRows) {
+        const parsed = parseBubbleKey(row.key);
+        if (!parsed) continue;
 
-      const composerBubbles = new Map<string, Bubble>();
-      for (const [key, bubble] of allBubbles) {
-        if (key.startsWith(`${composerId}:`)) {
-          const bubbleId = key.slice(composerId.length + 1);
-          composerBubbles.set(bubbleId, bubble);
+        const key = `${parsed.composerId}:${parsed.bubbleId}`;
+        if (!allBubbles.has(key)) {
+          try {
+            allBubbles.set(key, JSON.parse(row.value));
+          } catch {
+            // Skip invalid JSON
+          }
         }
       }
-
-      const session = buildSession(composerBubbles, composerData, projectPath);
-
-      if (session) {
-        const markdown = generateMarkdown(session, username, 'Cursor');
-        const filename = formatFilename(session.firstTimestamp, session.id, session.firstUserMessage);
-        await fs.writeFile(path.join(destDir, filename), markdown);
-        processedCount++;
-      }
-    } catch (e) {
-      debug(`Failed to process composer ${composerId}: ${(e as Error).message}`);
     }
-  }
 
-  log(`   Processed ${processedCount} sessions`);
+    // Process matching composers
+    let processedCount = 0;
+
+    for (const composerId of matchingComposerIds) {
+      const composerJson = composerMap.get(`composerData:${composerId}`);
+      if (!composerJson) continue;
+
+      try {
+        const composerData: ComposerData = JSON.parse(composerJson);
+
+        const composerBubbles = new Map<string, Bubble>();
+        for (const [key, bubble] of allBubbles) {
+          if (key.startsWith(`${composerId}:`)) {
+            const bubbleId = key.slice(composerId.length + 1);
+            composerBubbles.set(bubbleId, bubble);
+          }
+        }
+
+        const session = buildSession(composerBubbles, composerData, projectPath);
+
+        if (session) {
+          const markdown = generateMarkdown(session, username, 'Cursor');
+          const filename = formatFilename(session.firstTimestamp, session.id, session.firstUserMessage);
+          await fs.writeFile(path.join(destDir, filename), markdown);
+          processedCount++;
+        }
+      } catch (e) {
+        debug(`Failed to process composer ${composerId}: ${(e as Error).message}`);
+      }
+    }
+
+    log(`   Processed ${processedCount} sessions`);
+  } finally {
+    db.close();
+  }
 }
