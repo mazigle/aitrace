@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { copyClaudeLogs } from './claude.js';
 import { copyCursorLogs } from './cursor.js';
-import { ensureDir, exists, getGitUsername, log } from './utils.js';
+import { ensureDir, exists, getGitUsername, log, slugify } from './utils.js';
 
 const OUTPUT_DIR = 'ailog';
 
@@ -31,8 +31,9 @@ Output:
 
   const projectPath = process.cwd();
   const username = getGitUsername();
+  const userSlug = slugify(username);
   const baseDir = path.join(projectPath, OUTPUT_DIR);
-  const userDir = path.join(baseDir, username);
+  const userDir = path.join(baseDir, userSlug);
 
   if (args.includes('clean')) {
     if (await exists(baseDir)) {
@@ -53,7 +54,7 @@ Output:
   await copyClaudeLogs(userDir, projectPath, username);
   await copyCursorLogs(userDir, projectPath, username);
 
-  log(`✅ Done! Logs saved to ./${OUTPUT_DIR}/${username}/`);
+  log(`✅ Done! Logs saved to ./${OUTPUT_DIR}/${userSlug}/`);
 }
 
 main().catch((err) => {

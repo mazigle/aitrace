@@ -95,8 +95,8 @@ function formatFilename(date: Date, composerId: string, summary: string): string
   const shortId = composerId.slice(0, 8);
   const slug = slugify(summary);
   return slug
-    ? `${y}-${m}-${d}_${h}${min}_${slug}_${shortId}.md`
-    : `${y}-${m}-${d}_${h}${min}_${shortId}.md`;
+    ? `${y}-${m}-${d}-${h}${min}-${slug}-${shortId}.md`
+    : `${y}-${m}-${d}-${h}${min}-${shortId}.md`;
 }
 
 function getTimestampFromBubble(bubble: Bubble): Date {
