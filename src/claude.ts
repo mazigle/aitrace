@@ -115,7 +115,8 @@ async function getClaudeSessions(projectPath: string): Promise<Session[]> {
 
   try {
     const files = await fs.readdir(claudeProjectDir);
-    const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
+    // Filter out subagent sessions (files starting with "agent-")
+    const jsonlFiles = files.filter((f) => f.endsWith('.jsonl') && !f.startsWith('agent-'));
 
     for (const file of jsonlFiles) {
       const filePath = path.join(claudeProjectDir, file);
