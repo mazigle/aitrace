@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { copyClaudeLogs } from './claude.js';
 import { copyCursorLogs } from './cursor.js';
-import { canAccessPath, isKnownProject, listProjects } from './projects.js';
+import { canAccessPath, expandProjects, isKnownProject, listProjects } from './projects.js';
 import {
   ensureDir,
   exists,
@@ -12,6 +12,7 @@ import {
   getGitUsername,
   getUserIdentifier,
   log,
+  logError,
   setVerbose,
 } from './utils.js';
 
@@ -77,35 +78,7 @@ async function printProjectList(showAll: boolean) {
     return;
   }
 
-  // Expand projects: each tool gets its own line
-  const expandedProjects: Array<{
-    path: string;
-    tool: 'Claude' | 'Cursor';
-    lastActivity: Date;
-    isRemote: boolean;
-    remoteHost?: string;
-  }> = [];
-
-  for (const p of allProjects) {
-    if (p.hasClaude) {
-      expandedProjects.push({
-        path: p.path,
-        tool: 'Claude',
-        lastActivity: p.lastActivity,
-        isRemote: p.isRemote,
-        remoteHost: p.remoteHost,
-      });
-    }
-    if (p.hasCursor) {
-      expandedProjects.push({
-        path: p.path,
-        tool: 'Cursor',
-        lastActivity: p.lastActivity,
-        isRemote: p.isRemote,
-        remoteHost: p.remoteHost,
-      });
-    }
-  }
+  const expandedProjects = expandProjects(allProjects);
 
   // --all flag controls count limit only
   const displayProjects = showAll ? expandedProjects : expandedProjects.slice(0, DEFAULT_LIST_LIMIT);
@@ -147,33 +120,7 @@ async function printProjectList(showAll: boolean) {
 
 async function dumpProject(projectIndex: number, outputPath?: string) {
   const allProjects = await listProjects();
-
-  // Expand projects: each tool gets its own line (matching the list display)
-  const expandedProjects: Array<{
-    path: string;
-    tool: 'Claude' | 'Cursor';
-    isRemote: boolean;
-    remoteHost?: string;
-  }> = [];
-
-  for (const p of allProjects) {
-    if (p.hasClaude) {
-      expandedProjects.push({
-        path: p.path,
-        tool: 'Claude',
-        isRemote: p.isRemote,
-        remoteHost: p.remoteHost,
-      });
-    }
-    if (p.hasCursor) {
-      expandedProjects.push({
-        path: p.path,
-        tool: 'Cursor',
-        isRemote: p.isRemote,
-        remoteHost: p.remoteHost,
-      });
-    }
-  }
+  const expandedProjects = expandProjects(allProjects);
 
   if (projectIndex < 1 || projectIndex > expandedProjects.length) {
     console.error(`Error: Invalid project number. Use 1-${expandedProjects.length}`);
@@ -270,8 +217,13 @@ async function main() {
     if (showAll) {
       // Clean everything
       if (await exists(baseDir)) {
-        await fs.rm(baseDir, { recursive: true });
-        log('Cleaned up all ailog data');
+        try {
+          await fs.rm(baseDir, { recursive: true });
+          log('Cleaned up all ailog data');
+        } catch (e) {
+          logError('cleaning ailog directory', e);
+          process.exit(1);
+        }
       } else {
         log('No ailog folder to clean');
       }
@@ -280,8 +232,13 @@ async function main() {
       const userIdentifier = getUserIdentifier();
       const userDir = path.join(baseDir, userIdentifier);
       if (await exists(userDir)) {
-        await fs.rm(userDir, { recursive: true });
-        log(`Cleaned up ${userIdentifier}/`);
+        try {
+          await fs.rm(userDir, { recursive: true });
+          log(`Cleaned up ${userIdentifier}/`);
+        } catch (e) {
+          logError('cleaning user directory', e);
+          process.exit(1);
+        }
       } else {
         log(`No logs found for ${userIdentifier}`);
       }

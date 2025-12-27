@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { Session, SessionEntry } from './format.js';
 import { formatFilename, generateMarkdown } from './format.js';
 import { getClaudeProjectDir } from './paths.js';
-import { debug, ensureDir, exists, log } from './utils.js';
+import { debug, ensureDir, exists, log, logError } from './utils.js';
 
 interface ClaudeMessage {
   type: string;
@@ -14,6 +14,12 @@ interface ClaudeMessage {
   };
   timestamp?: string;
   sessionId?: string;
+}
+
+function isValidClaudeMessage(obj: unknown): obj is ClaudeMessage {
+  if (!obj || typeof obj !== 'object') return false;
+  const msg = obj as Record<string, unknown>;
+  return typeof msg.type === 'string';
 }
 
 function extractTextContent(message: ClaudeMessage['message']): string | null {
@@ -35,7 +41,12 @@ async function parseJsonlFile(filePath: string): Promise<ClaudeMessage[]> {
   for (const line of lines) {
     if (!line.trim()) continue;
     try {
-      messages.push(JSON.parse(line));
+      const parsed = JSON.parse(line);
+      if (isValidClaudeMessage(parsed)) {
+        messages.push(parsed);
+      } else {
+        debug(`Invalid message structure in line`);
+      }
     } catch (e) {
       debug(`Failed to parse JSON line: ${(e as Error).message}`);
     }
@@ -113,6 +124,7 @@ export async function copyClaudeLogs(
   const files = await fs.readdir(claudeProjectDir);
   const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
   let processedCount = 0;
+  let failedCount = 0;
 
   for (const file of jsonlFiles) {
     const filePath = path.join(claudeProjectDir, file);
@@ -129,9 +141,14 @@ export async function copyClaudeLogs(
         processedCount++;
       }
     } catch (e) {
-      debug(`Failed to process ${file}: ${(e as Error).message}`);
+      logError(`processing ${file}`, e);
+      failedCount++;
     }
   }
 
-  log(`   Processed ${processedCount} sessions`);
+  if (failedCount > 0) {
+    log(`   Processed ${processedCount} sessions (${failedCount} failed)`);
+  } else {
+    log(`   Processed ${processedCount} sessions`);
+  }
 }

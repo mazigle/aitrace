@@ -31,6 +31,18 @@ export function debug(msg: string): void {
   }
 }
 
+export function isVerbose(): boolean {
+  return verboseMode;
+}
+
+export function logError(context: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`Error in ${context}: ${message}`);
+  if (verboseMode) {
+    console.error(error);
+  }
+}
+
 export function getGitUsername(): string {
   // 1. Try repo-specific git config
   try {

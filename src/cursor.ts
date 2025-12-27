@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { Session, SessionEntry } from './format.js';
 import { formatFilename, generateMarkdown } from './format.js';
 import { getCursorDbPath } from './paths.js';
-import { debug, ensureDir, exists, log } from './utils.js';
+import { debug, ensureDir, exists, log, logError } from './utils.js';
 
 interface Bubble {
   type: number; // 1 = user, 2 = assistant
@@ -47,6 +47,16 @@ function bubbleBelongsToProject(bubbleJson: string, projectPath: string): boolea
 interface BubbleWithJson {
   bubble: Bubble;
   json: string;
+}
+
+function isValidBubble(obj: unknown): obj is Bubble {
+  if (!obj || typeof obj !== 'object') return false;
+  const b = obj as Record<string, unknown>;
+  return (
+    typeof b.composerMetadataId === 'string' &&
+    typeof b.bubbleId === 'string' &&
+    typeof b.text === 'string'
+  );
 }
 
 function buildSession(
@@ -130,8 +140,8 @@ export async function copyCursorLogs(
   try {
     db = new Database(dbPath, { readonly: true });
   } catch (e) {
-    debug(`Failed to open Cursor database: ${(e as Error).message}`);
-    log('   Could not open Cursor database');
+    logError('opening Cursor database', e);
+    log('   Could not access Cursor database. Make sure Cursor is installed.');
     return;
   }
 
@@ -152,27 +162,22 @@ export async function copyCursorLogs(
       composerMap.set(row.key, row.value);
     }
 
-    // Get bubbles that contain the project path
+    // Get bubbles that contain the project path and find matching composers
     const escapedPath = projectPath.replace(/'/g, "''");
-    const bubbleRows = db
+    const initialBubbleRows = db
       .prepare(
         `SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%${escapedPath}%'`
       )
       .all() as KVRow[];
 
     const matchingComposerIds = new Set<string>();
-    const allBubbles = new Map<string, BubbleWithJson>();
+    let skippedCount = 0;
 
-    for (const row of bubbleRows) {
+    // First pass: find composer IDs
+    for (const row of initialBubbleRows) {
       const parsed = parseBubbleKey(row.key);
-      if (!parsed) continue;
-
-      try {
-        const bubble: Bubble = JSON.parse(row.value);
+      if (parsed) {
         matchingComposerIds.add(parsed.composerId);
-        allBubbles.set(`${parsed.composerId}:${parsed.bubbleId}`, { bubble, json: row.value });
-      } catch (e) {
-        debug(`Failed to parse bubble JSON: ${(e as Error).message}`);
       }
     }
 
@@ -182,26 +187,37 @@ export async function copyCursorLogs(
       return;
     }
 
-    // Get all bubbles for matching composers
-    for (const composerId of matchingComposerIds) {
-      const composerBubbleRows = db
-        .prepare(`SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:${composerId}:%'`)
-        .all() as KVRow[];
+    // Single optimized query: get all bubbles for matching composers
+    const composerIdPatterns = Array.from(matchingComposerIds)
+      .map((id) => `'bubbleId:${id}:%'`)
+      .join(' OR key LIKE ');
 
-      for (const row of composerBubbleRows) {
-        const parsed = parseBubbleKey(row.key);
-        if (!parsed) continue;
+    const allBubbleRows = db
+      .prepare(`SELECT key, value FROM cursorDiskKV WHERE key LIKE ${composerIdPatterns}`)
+      .all() as KVRow[];
 
-        const key = `${parsed.composerId}:${parsed.bubbleId}`;
-        if (!allBubbles.has(key)) {
-          try {
-            const bubble: Bubble = JSON.parse(row.value);
-            allBubbles.set(key, { bubble, json: row.value });
-          } catch {
-            // Skip invalid JSON
-          }
+    const allBubbles = new Map<string, BubbleWithJson>();
+
+    for (const row of allBubbleRows) {
+      const parsed = parseBubbleKey(row.key);
+      if (!parsed) continue;
+
+      try {
+        const parsedBubble = JSON.parse(row.value);
+        if (!isValidBubble(parsedBubble)) {
+          debug(`Invalid bubble structure: ${row.key}`);
+          skippedCount++;
+          continue;
         }
+        allBubbles.set(`${parsed.composerId}:${parsed.bubbleId}`, { bubble: parsedBubble, json: row.value });
+      } catch (e) {
+        debug(`Failed to parse bubble JSON: ${(e as Error).message}`);
+        skippedCount++;
       }
+    }
+
+    if (skippedCount > 0) {
+      debug(`Skipped ${skippedCount} invalid bubbles`);
     }
 
     // Process matching composers

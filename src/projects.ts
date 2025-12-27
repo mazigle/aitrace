@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { decodeProjectPath, getClaudeProjectsRoot, getCursorDbPath } from './paths.js';
-import { debug, exists } from './utils.js';
+import { debug, exists, logError } from './utils.js';
 
 export interface Project {
   path: string;
@@ -161,7 +161,7 @@ function getCursorProjects(): Map<string, CursorProject> {
   try {
     db = new Database(dbPath, { readonly: true });
   } catch (e) {
-    debug(`Failed to open Cursor database: ${(e as Error).message}`);
+    logError('opening Cursor database', e);
     return projects;
   }
 
@@ -184,6 +184,7 @@ function getCursorProjects(): Map<string, CursorProject> {
       // Extract file paths from external URIs (use matchAll to avoid lastIndex issues)
       const externalMatches = row.value.matchAll(/"external"\s*:\s*"([^"]+)"/g);
       for (const match of externalMatches) {
+        if (!match[1]) continue;
         const rawUri = match[1];
 
         // Parse URI to extract path
@@ -233,6 +234,7 @@ function getCursorProjects(): Map<string, CursorProject> {
       // Use matchAll to avoid lastIndex issues with global regex
       const pathMatches = row.value.matchAll(/"path"\s*:\s*"([^"]+)"/g);
       for (const match of pathMatches) {
+        if (!match[1]) continue;
         const rawPath = match[1];
 
         // Parse URI to extract path
@@ -323,4 +325,37 @@ export async function isKnownProject(projectPath: string): Promise<boolean> {
 
 export async function canAccessPath(projectPath: string): Promise<boolean> {
   return exists(projectPath);
+}
+
+export interface ExpandedProject {
+  path: string;
+  tool: 'Claude' | 'Cursor';
+  lastActivity: Date;
+  isRemote: boolean;
+  remoteHost?: string;
+}
+
+export function expandProjects(projects: Project[]): ExpandedProject[] {
+  const expanded: ExpandedProject[] = [];
+  for (const p of projects) {
+    if (p.hasClaude) {
+      expanded.push({
+        path: p.path,
+        tool: 'Claude',
+        lastActivity: p.lastActivity,
+        isRemote: p.isRemote,
+        remoteHost: p.remoteHost,
+      });
+    }
+    if (p.hasCursor) {
+      expanded.push({
+        path: p.path,
+        tool: 'Cursor',
+        lastActivity: p.lastActivity,
+        isRemote: p.isRemote,
+        remoteHost: p.remoteHost,
+      });
+    }
+  }
+  return expanded;
 }

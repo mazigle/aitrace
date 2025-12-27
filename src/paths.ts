@@ -44,7 +44,13 @@ export function getClaudeProjectsRoot(): string {
   return path.join(homeDir, '.claude', 'projects');
 }
 
+// Cache for decoded paths
+const pathCache = new Map<string, string>();
+
 export function decodeProjectPath(encodedPath: string): string {
+  // Check cache first
+  const cached = pathCache.get(encodedPath);
+  if (cached) return cached;
   // -Users-donghyun-repo-sgr-newsletter -> /Users/donghyun/repo/sgr-newsletter
   // The challenge: both / and - in original path become - in encoded path
   // Solution: Greedily find existing directories from left to right
@@ -63,7 +69,11 @@ export function decodeProjectPath(encodedPath: string): string {
 
   // Unix path: -Users-donghyun-repo-... -> /Users/donghyun/repo/...
   const segments = encodedPath.split('-').filter(Boolean);
-  return decodePathSegments('', segments, sep);
+  const result = decodePathSegments('', segments, sep);
+
+  // Cache the result
+  pathCache.set(encodedPath, result);
+  return result;
 }
 
 function decodePathSegments(prefix: string, segments: string[], sep: string): string {
