@@ -4,7 +4,7 @@ import path from 'node:path';
 import { copyClaudeLogs } from './claude.js';
 import { copyCursorLogs } from './cursor.js';
 import { canAccessPath, isKnownProject, listProjects } from './projects.js';
-import { ensureDir, exists, formatRelativeTime, getGitUsername, getUserIdentifier, log, setVerbose } from './utils.js';
+import { ensureDir, exists, formatDate, getGitUsername, getUserIdentifier, log, setVerbose } from './utils.js';
 
 const OUTPUT_DIR = 'ailog';
 const DEFAULT_LIST_LIMIT = 10;
@@ -87,7 +87,7 @@ async function printProjectList(showAll: boolean) {
     const idx = String(i + 1).padStart(maxIdxWidth, ' ');
     const shortPath = shortenPath(p.path);
     const toolsStr = `[${tools.join(', ')}]`;
-    const timeStr = formatRelativeTime(p.lastActivity);
+    const dateStr = formatDate(p.lastActivity);
 
     // Show appropriate tag: remote (SSH), missing (deleted/bad decode), or nothing
     let statusTag = '';
@@ -95,7 +95,7 @@ async function printProjectList(showAll: boolean) {
       statusTag = p.isRemote ? ' (remote)' : ' (missing)';
     }
 
-    log(`  ${idx}. ${shortPath}  ${toolsStr}  ${timeStr}${statusTag}`);
+    log(`  ${idx}. ${dateStr}  ${shortPath}  ${toolsStr}${statusTag}`);
   }
 
   if (hasMore) {

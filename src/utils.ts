@@ -88,3 +88,10 @@ export function formatRelativeTime(date: Date): string {
   if (minutes > 0) return `${minutes}m ago`;
   return 'just now';
 }
+
+export function formatDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
