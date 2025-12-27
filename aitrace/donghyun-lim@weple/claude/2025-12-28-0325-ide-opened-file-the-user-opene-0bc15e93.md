@@ -6,7 +6,7 @@ User: Donghyun Lim
 
 Started: 2025-12-28T03:25:36+09:00
 
-Last updated: 2025-12-28T03:26:32+09:00
+Last updated: 2025-12-28T03:34:34+09:00
 
 Session ID: 0bc15e93-cf6a-4ca3-bb2c-0bdac388e817
 
@@ -32,5 +32,17 @@ Session ID: 0bc15e93-cf6a-4ca3-bb2c-0bdac388e817
 > - `--full` / `-f` → `--user-only` / `-u` 로 변경
 > - 기본값: full conversation (assistant 포함)
 > - `--user-only` 옵션 사용 시: user 메시지만 포함
+
+---
+
+## 2025-12-28T03:34:19+09:00
+
+### User
+
+> MIT 라이센스 추가해줘
+
+### Assistant
+
+> MIT 라이센스 파일을 추가했습니다.
 
 ---
