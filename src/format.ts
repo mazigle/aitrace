@@ -56,11 +56,17 @@ export function truncateTitle(text: string, maxLen = 60): string {
   return oneLine.length > maxLen ? oneLine.slice(0, maxLen) + '...' : oneLine;
 }
 
+export interface GenerateMarkdownOptions {
+  includeAssistant?: boolean;
+}
+
 export function generateMarkdown(
   session: Session,
   username: string,
-  toolName: string
+  toolName: string,
+  options: GenerateMarkdownOptions = {}
 ): string {
+  const { includeAssistant = false } = options;
   const lines: string[] = [];
   const title = truncateTitle(session.firstUserMessage);
 
@@ -91,7 +97,7 @@ export function generateMarkdown(
       lines.push('');
     }
 
-    if (entry.assistantMessage) {
+    if (includeAssistant && entry.assistantMessage) {
       lines.push('### Assistant');
       lines.push('');
       const quotedAssistant = entry.assistantMessage

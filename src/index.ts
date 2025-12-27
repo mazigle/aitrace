@@ -39,6 +39,7 @@ Commands:
 Options:
   -o, --output <path>  Output directory (for dump command)
   -c, --count          Show session counts in list
+  -f, --full           Include assistant responses (default: user only)
   -v, --verbose        Show debug output
   -h, --help           Show this help message
 
@@ -134,7 +135,7 @@ async function printProjectList(showAll: boolean, showCount: boolean) {
   log('\nUsage: npx ailog dump <N>');
 }
 
-async function dumpProject(projectIndex: number, outputPath?: string) {
+async function dumpProject(projectIndex: number, outputPath?: string, options: { includeAssistant?: boolean } = {}) {
   const allProjects = await listProjects();
   const expandedProjects = expandProjects(allProjects);
 
@@ -187,9 +188,9 @@ async function dumpProject(projectIndex: number, outputPath?: string) {
 
   // Only copy logs for the selected tool
   if (selectedProject.tool === 'Claude') {
-    await copyClaudeLogs(userDir, project.path, username);
+    await copyClaudeLogs(userDir, project.path, username, options);
   } else if (selectedProject.tool === 'Cursor') {
-    await copyCursorLogs(userDir, project.path, username);
+    await copyCursorLogs(userDir, project.path, username, options);
   }
 
   // Upload to remote if needed
@@ -209,7 +210,7 @@ async function dumpProject(projectIndex: number, outputPath?: string) {
   }
 }
 
-const VALID_FLAGS = ['--verbose', '-v', '--help', '-h', '--all', '--count', '-c', '--output', '-o'];
+const VALID_FLAGS = ['--verbose', '-v', '--help', '-h', '--all', '--count', '-c', '--output', '-o', '--full', '-f'];
 const VALID_COMMANDS = ['list', 'dump', 'clean'];
 
 async function main() {
@@ -227,6 +228,8 @@ async function main() {
 
   const showAll = args.includes('--all');
   const showCount = args.includes('--count') || args.includes('-c');
+  const includeFull = args.includes('--full') || args.includes('-f');
+  const markdownOptions = { includeAssistant: includeFull };
 
   // Parse --output / -o
   let outputPath: string | undefined;
@@ -266,7 +269,7 @@ async function main() {
       console.error('Error: dump requires a project number. Use "ailog list" first.');
       process.exit(1);
     }
-    await dumpProject(parseInt(numArg, 10), outputPath);
+    await dumpProject(parseInt(numArg, 10), outputPath, markdownOptions);
     return;
   }
 
@@ -327,8 +330,8 @@ async function main() {
   log(`Project: ${projectPath}`);
   log(`User: ${username}`);
 
-  await copyClaudeLogs(userDir, projectPath, username);
-  await copyCursorLogs(userDir, projectPath, username);
+  await copyClaudeLogs(userDir, projectPath, username, markdownOptions);
+  await copyCursorLogs(userDir, projectPath, username, markdownOptions);
 
   log(`Done! Logs saved to ./${OUTPUT_DIR}/${userIdentifier}/`);
 }

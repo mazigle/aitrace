@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { Session, SessionEntry } from './format.js';
+import type { GenerateMarkdownOptions, Session, SessionEntry } from './format.js';
 import { formatFilename, generateMarkdown } from './format.js';
 import { getClaudeProjectDir } from './paths.js';
 import { debug, ensureDir, exists, log } from './utils.js';
@@ -146,7 +146,8 @@ export async function countClaudeSessions(projectPath: string): Promise<number> 
 export async function copyClaudeLogs(
   targetDir: string,
   projectPath: string,
-  username: string
+  username: string,
+  options: GenerateMarkdownOptions = {}
 ): Promise<void> {
   log('Processing Claude Code logs...');
   const destDir = path.join(targetDir, 'claude');
@@ -160,7 +161,7 @@ export async function copyClaudeLogs(
   }
 
   for (const session of sessions) {
-    const markdown = generateMarkdown(session, username, 'Claude Code');
+    const markdown = generateMarkdown(session, username, 'Claude Code', options);
     const filename = formatFilename(session.firstTimestamp, session.id, session.firstUserMessage);
     await fs.writeFile(path.join(destDir, filename), markdown);
   }

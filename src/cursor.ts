@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { Session, SessionEntry } from './format.js';
+import type { GenerateMarkdownOptions, Session, SessionEntry } from './format.js';
 import { formatFilename, generateMarkdown } from './format.js';
 import { getCursorDbPath } from './paths.js';
 import { debug, ensureDir, exists, log } from './utils.js';
@@ -223,7 +223,8 @@ export function countCursorSessions(projectPath: string): number {
 export async function copyCursorLogs(
   targetDir: string,
   projectPath: string,
-  username: string
+  username: string,
+  options: GenerateMarkdownOptions = {}
 ): Promise<void> {
   const dbPath = getCursorDbPath();
 
@@ -244,7 +245,7 @@ export async function copyCursorLogs(
   }
 
   for (const session of sessions) {
-    const markdown = generateMarkdown(session, username, 'Cursor');
+    const markdown = generateMarkdown(session, username, 'Cursor', options);
     const filename = formatFilename(session.firstTimestamp, session.id, session.firstUserMessage);
     await fs.writeFile(path.join(destDir, filename), markdown);
   }
