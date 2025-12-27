@@ -39,13 +39,13 @@ Options:
   -h, --help           Show this help message
 
 Examples:
-  ailog                    # Dump logs for current project
-  ailog list               # Show available projects
-  ailog list --all         # Show all projects including remote
-  ailog dump 1             # Dump project #1 to its location
-  ailog dump 1 -o ./logs   # Dump project #1 to ./logs
-  ailog clean              # Remove your logs only
-  ailog clean --all        # Remove all logs
+  npx ailog                    # Dump logs for current project
+  npx ailog list               # Show available projects
+  npx ailog list --all         # Show all projects including remote
+  npx ailog dump 1             # Dump project #1 to its location
+  npx ailog dump 1 -o ./logs   # Dump project #1 to ./logs
+  npx ailog clean              # Remove your logs only
+  npx ailog clean --all        # Remove all logs
 `);
 }
 
@@ -54,10 +54,10 @@ function printNotInProject() {
 Not in a known project directory.
 
 Usage:
-  ailog              Run in a project directory to dump logs
-  ailog list         Show available projects
-  ailog dump <N>     Dump logs for project N from list
-  ailog --help       Show all options
+  npx ailog              Run in a project directory to dump logs
+  npx ailog list         Show available projects
+  npx ailog dump <N>     Dump logs for project N from list
+  npx ailog --help       Show all options
 `);
 }
 
@@ -143,7 +143,7 @@ async function printProjectList(showAll: boolean) {
     log(`\n  ... ${expandedProjects.length - DEFAULT_LIST_LIMIT} more`);
   }
 
-  log('\nUsage: ailog dump <N>');
+  log('\nUsage: npx ailog dump <N>');
 }
 
 async function dumpProject(projectIndex: number, outputPath?: string, includeInaccessible = false) {
