@@ -1,5 +1,6 @@
-import fs from 'fs/promises';
-import path from 'path';
+import { execSync } from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 export async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
@@ -36,5 +37,19 @@ export function log(msg: string): void {
 
 export function getHomeDir(): string {
   return process.env.HOME || process.env.USERPROFILE || '';
+}
+
+export function getGitUsername(): string {
+  try {
+    const name = execSync('git config user.name', { encoding: 'utf-8' }).trim();
+    return slugify(name);
+  } catch {
+    // Fallback to OS username
+    return process.env.USER || process.env.USERNAME || 'unknown';
+  }
+}
+
+function slugify(str: string): string {
+  return str.toLowerCase().trim().replace(/\s+/g, '-');
 }
 

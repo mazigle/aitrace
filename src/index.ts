@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { copyClaudeLogs } from './claude.js';
-import { ensureDir, exists, log } from './utils.js';
+import { ensureDir, exists, getGitUsername, log } from './utils.js';
 
 const OUTPUT_DIR = 'ailog';
 
@@ -29,11 +29,13 @@ Output:
   }
 
   const projectPath = process.cwd();
-  const targetDir = path.join(projectPath, OUTPUT_DIR);
+  const username = getGitUsername();
+  const baseDir = path.join(projectPath, OUTPUT_DIR);
+  const userDir = path.join(baseDir, username);
 
   if (args.includes('clean')) {
-    if (await exists(targetDir)) {
-      await fs.rm(targetDir, { recursive: true });
+    if (await exists(baseDir)) {
+      await fs.rm(baseDir, { recursive: true });
       log('🧹 Cleaned up ailog folder');
     } else {
       log('ℹ️  No ailog folder to clean');
@@ -41,14 +43,15 @@ Output:
     return;
   }
 
-  await ensureDir(targetDir);
+  await ensureDir(userDir);
 
   log('🚀 Starting ailog...');
   log(`📂 Project: ${projectPath}`);
+  log(`👤 User: ${username}`);
 
-  await copyClaudeLogs(targetDir, projectPath);
+  await copyClaudeLogs(userDir, projectPath);
 
-  log(`✅ Done! Logs saved to ./${OUTPUT_DIR}/`);
+  log(`✅ Done! Logs saved to ./${OUTPUT_DIR}/${username}/`);
 }
 
 main().catch((err) => {
