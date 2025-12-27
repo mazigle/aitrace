@@ -154,10 +154,14 @@ function buildSession(messages: ClaudeMessage[], sessionId: string): Session | n
   };
 }
 
-function generateMarkdown(session: Session): string {
+function generateMarkdown(session: Session, username: string): string {
   const lines: string[] = [];
 
-  lines.push(`# ${session.summary}`);
+  lines.push(`# Claude Code: ${session.summary}`);
+  lines.push('');
+  lines.push('Tool: Claude Code');
+  lines.push('');
+  lines.push(`User: ${username}`);
   lines.push('');
   lines.push(`Started: ${formatISOLocal(session.firstTimestamp)}`);
   lines.push('');
@@ -201,7 +205,8 @@ function generateMarkdown(session: Session): string {
 
 export async function copyClaudeLogs(
   targetDir: string,
-  projectPath: string
+  projectPath: string,
+  username: string
 ): Promise<void> {
   const homeDir = getHomeDir();
   const encodedPath = encodeProjectPath(projectPath);
@@ -236,7 +241,7 @@ export async function copyClaudeLogs(
       const session = buildSession(messages, sessionId);
 
       if (session) {
-        const markdown = generateMarkdown(session);
+        const markdown = generateMarkdown(session, username);
         const filename = formatFilename(session.firstTimestamp, session.id, session.summary);
         await fs.writeFile(path.join(destDir, filename), markdown);
         processedCount++;

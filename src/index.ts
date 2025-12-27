@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { copyClaudeLogs } from './claude.js';
+import { copyCursorLogs } from './cursor.js';
 import { ensureDir, exists, getGitUsername, log } from './utils.js';
 
 const OUTPUT_DIR = 'ailog';
@@ -11,7 +12,7 @@ async function main() {
 
   if (args.includes('--help') || args.includes('-h')) {
     console.log(`
-ailog - Collect Claude Code logs for current project
+ailog - Collect Claude Code and Cursor logs for current project
 
 Usage:
   npx ailog [command]
@@ -49,7 +50,8 @@ Output:
   log(`📂 Project: ${projectPath}`);
   log(`👤 User: ${username}`);
 
-  await copyClaudeLogs(userDir, projectPath);
+  await copyClaudeLogs(userDir, projectPath, username);
+  await copyCursorLogs(userDir, projectPath, username);
 
   log(`✅ Done! Logs saved to ./${OUTPUT_DIR}/${username}/`);
 }
