@@ -31,11 +31,22 @@ export function debug(msg: string): void {
 }
 
 export function getGitUsername(): string {
+  // 1. Try repo-specific git config
   try {
-    return execSync('git config user.name', { encoding: 'utf-8' }).trim();
+    return execSync('git config user.name', { encoding: 'utf-8', stdio: 'pipe' }).trim();
   } catch {
-    return process.env.USER || process.env.USERNAME || 'unknown';
+    // Not in a git repo or no local config
   }
+
+  // 2. Try global git config
+  try {
+    return execSync('git config --global user.name', { encoding: 'utf-8', stdio: 'pipe' }).trim();
+  } catch {
+    // No global git config
+  }
+
+  // 3. Fallback to OS username
+  return process.env.USER || process.env.USERNAME || 'unknown';
 }
 
 export function slugifyPath(str: string): string {

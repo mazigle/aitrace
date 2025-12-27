@@ -38,3 +38,26 @@ export function getClaudeProjectDir(projectPath: string): string {
   return path.join(homeDir, '.claude', 'projects', encodedPath);
 }
 
+export function getClaudeProjectsRoot(): string {
+  const homeDir = getHomeDir();
+  return path.join(homeDir, '.claude', 'projects');
+}
+
+export function decodeProjectPath(encodedPath: string): string {
+  // -Users-donghyun-repo-ailog -> /Users/donghyun/repo/ailog
+  // Handle Windows: -C--Users-... -> C:\Users\...
+  const platform = getPlatform();
+
+  if (platform === 'win32') {
+    // Check if it looks like a Windows path (starts with -X- where X is a drive letter)
+    const winMatch = encodedPath.match(/^-([A-Za-z])-(.*)$/);
+    if (winMatch) {
+      const [, drive, rest] = winMatch;
+      return `${drive}:${rest.replace(/-/g, '\\')}`;
+    }
+  }
+
+  // Unix path: -Users-donghyun-... -> /Users/donghyun/...
+  return encodedPath.replace(/-/g, '/');
+}
+
