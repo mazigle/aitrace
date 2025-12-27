@@ -1,8 +1,9 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { copyClaudeLogs } from './claude.js';
 import { copyCursorLogs } from './cursor.js';
-import { ensureDir, log } from './utils.js';
+import { ensureDir, exists, log } from './utils.js';
 
 const OUTPUT_DIR = 'ailog';
 
@@ -14,7 +15,10 @@ async function main() {
 ailog - Collect Claude Code and Cursor logs
 
 Usage:
-  npx ailog [options]
+  npx ailog [command] [options]
+
+Commands:
+  clean       Remove the ailog folder
 
 Options:
   --claude    Copy only Claude Code logs
@@ -28,6 +32,17 @@ Output:
   }
 
   const targetDir = path.join(process.cwd(), OUTPUT_DIR);
+
+  if (args.includes('clean')) {
+    if (await exists(targetDir)) {
+      await fs.rm(targetDir, { recursive: true });
+      log('🧹 Cleaned up ailog folder');
+    } else {
+      log('ℹ️  No ailog folder to clean');
+    }
+    return;
+  }
+
   await ensureDir(targetDir);
 
   const claudeOnly = args.includes('--claude');
