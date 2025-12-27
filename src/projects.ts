@@ -167,9 +167,10 @@ function getCursorProjects(): Map<string, CursorProject> {
 
   try {
     // First, get timestamps from composerData (has createdAt field)
+    // Use >= and < for index optimization instead of LIKE
     const composerTimestamps = new Map<string, Date>();
     const composerRows = db
-      .prepare("SELECT value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")
+      .prepare("SELECT value FROM cursorDiskKV WHERE key >= 'composerData:' AND key < 'composerData;'")
       .all() as ComposerRow[];
 
     const createdAtRegex = /"createdAt"\s*:\s*(\d+)/;
@@ -217,9 +218,10 @@ function getCursorProjects(): Map<string, CursorProject> {
     }
 
     // Also check bubbleId data for additional paths and timestamps
+    // Use >= and < for index optimization instead of LIKE
     const bubbleRows = db
       .prepare(
-        "SELECT value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%attachedFileCodeChunksUris%'"
+        "SELECT value FROM cursorDiskKV WHERE key >= 'bubbleId:' AND key < 'bubbleId;' AND value LIKE '%attachedFileCodeChunksUris%'"
       )
       .all() as { value: string }[];
 
