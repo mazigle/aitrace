@@ -1,5 +1,6 @@
 // Project discovery and listing
 import Database from 'better-sqlite3';
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -156,6 +157,13 @@ interface ComposerRow {
 function getCursorProjects(): Map<string, CursorProject> {
   const projects = new Map<string, CursorProject>();
   const dbPath = getCursorDbPath();
+
+  // Cursor may not be installed on this machine. Stay silent in that case;
+  // only report unexpected errors when the file exists but cannot be opened.
+  if (!existsSync(dbPath)) {
+    debug(`Cursor database not found at ${dbPath}`);
+    return projects;
+  }
 
   let db: Database.Database;
   try {
