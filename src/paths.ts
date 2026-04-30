@@ -77,45 +77,42 @@ export function decodeProjectPath(encodedPath: string): string {
 }
 
 function decodePathSegments(prefix: string, segments: string[], sep: string): string {
-  // Greedily decode: find the shortest segment that exists as a directory,
-  // then recurse with remaining segments
+  // Encoded paths use '-' for both '/' separators and literal hyphens. The
+  // ambiguity is resolved by checking the real filesystem: at each step we
+  // pick the longest interpretation that actually exists as a directory.
+  // Shortest-first is wrong because, e.g. "/repo/sgr-crawler-v3" would be
+  // misread as "/repo/sgr-crawler/v3" when "/repo/sgr-crawler" also exists.
 
   let currentPath = prefix;
   let remaining = [...segments];
 
   while (remaining.length > 0) {
-    let found = false;
+    let consumed = 0;
 
-    // Try single segment first (most common case)
-    for (let len = 1; len <= remaining.length; len++) {
+    for (let len = remaining.length; len >= 1; len--) {
       const segment = remaining.slice(0, len).join('-');
       const testPath = currentPath ? `${currentPath}${sep}${segment}` : `${sep}${segment}`;
-
-      // If this is the last segment(s), just accept it
-      if (len === remaining.length) {
-        return testPath;
-      }
-
-      // Check if this path exists as a directory
       try {
         const stat = fs.statSync(testPath);
         if (stat.isDirectory()) {
           currentPath = testPath;
-          remaining = remaining.slice(len);
-          found = true;
+          consumed = len;
           break;
         }
       } catch {
-        // Path doesn't exist, try longer segment
+        // Try a shorter interpretation
       }
     }
 
-    // If nothing was found, fallback to single segment
-    if (!found) {
+    // Nothing on disk matches (e.g. project was deleted). Fall back to a
+    // single segment so we still produce a plausible decoded path.
+    if (consumed === 0) {
       const segment = remaining[0];
       currentPath = currentPath ? `${currentPath}${sep}${segment}` : `${sep}${segment}`;
-      remaining = remaining.slice(1);
+      consumed = 1;
     }
+
+    remaining = remaining.slice(consumed);
   }
 
   return currentPath || sep;
