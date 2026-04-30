@@ -330,10 +330,25 @@ async function main() {
   log(`Project: ${projectPath}`);
   log(`User: ${username}`);
 
-  await copyClaudeLogs(userDir, projectPath, username, markdownOptions);
-  await copyCursorLogs(userDir, projectPath, username, markdownOptions);
+  // Run independently so a failure in one tool does not block the other
+  const results = await Promise.allSettled([
+    copyClaudeLogs(userDir, projectPath, username, markdownOptions),
+    copyCursorLogs(userDir, projectPath, username, markdownOptions),
+  ]);
+  const labels = ['Claude logs', 'Cursor logs'];
+  let hadFailure = false;
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') {
+      hadFailure = true;
+      logError(labels[i], r.reason);
+    }
+  });
 
-  log(`Done! Logs saved to ./${OUTPUT_DIR}/${userIdentifier}/`);
+  if (hadFailure) {
+    log(`Done with errors. Partial logs saved to ./${OUTPUT_DIR}/${userIdentifier}/`);
+  } else {
+    log(`Done! Logs saved to ./${OUTPUT_DIR}/${userIdentifier}/`);
+  }
 }
 
 main().catch((err) => {

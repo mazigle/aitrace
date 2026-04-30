@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { GenerateMarkdownOptions, Session, SessionEntry } from './format.js';
 import { formatFilename, generateMarkdown } from './format.js';
 import { getCursorDbPath } from './paths.js';
-import { debug, ensureDir, exists, log } from './utils.js';
+import { debug, ensureDir, exists, log, logError } from './utils.js';
 
 interface Bubble {
   type: number; // 1 = user, 2 = assistant
@@ -41,8 +41,18 @@ function getTimestampFromBubble(bubble: Bubble): Date | null {
 }
 
 function bubbleBelongsToProject(bubbleJson: string, projectPath: string): boolean {
-  // Simple string check - if project path appears anywhere in the bubble JSON
-  return bubbleJson.includes(projectPath);
+  // Match project path with a boundary check to avoid false positives like
+  // "/foo/bar" matching "/foo/bar-baz". Allow end-of-string or a non path-char.
+  const idx = bubbleJson.indexOf(projectPath);
+  if (idx === -1) return false;
+  const next = bubbleJson.charAt(idx + projectPath.length);
+  // Path continues if next char is a typical path char (alphanum, _, -, .)
+  return next === '' || !/[A-Za-z0-9_\-.]/.test(next);
+}
+
+function escapeSqlLike(s: string): string {
+  // Escape SQL string quote and LIKE wildcards. Pair with ESCAPE '\\' in query.
+  return s.replace(/'/g, "''").replace(/\\/g, '\\\\').replace(/[%_]/g, (c) => '\\' + c);
 }
 
 interface BubbleWithJson {
@@ -151,10 +161,10 @@ function getCursorSessions(projectPath: string): Session[] {
 
     // Get bubbles that contain the project path and find matching composers
     // Use >= and < for index optimization, only fetch key since we just need composer IDs
-    const escapedPath = projectPath.replace(/'/g, "''");
+    const escapedPath = escapeSqlLike(projectPath);
     const initialBubbleRows = db
       .prepare(
-        `SELECT key FROM cursorDiskKV WHERE key >= 'bubbleId:' AND key < 'bubbleId;' AND value LIKE '%${escapedPath}%'`
+        `SELECT key FROM cursorDiskKV WHERE key >= 'bubbleId:' AND key < 'bubbleId;' AND value LIKE '%${escapedPath}%' ESCAPE '\\'`
       )
       .all() as { key: string }[];
 
@@ -209,6 +219,10 @@ function getCursorSessions(projectPath: string): Session[] {
         debug(`Failed to process composer ${composerId}: ${(e as Error).message}`);
       }
     }
+  } catch (e) {
+    // Surface DB-level failures (schema changes, lock, corruption) without
+    // aborting the rest of the pipeline.
+    logError('reading Cursor database', e);
   } finally {
     db.close();
   }
@@ -244,11 +258,17 @@ export async function copyCursorLogs(
     return;
   }
 
+  let written = 0;
   for (const session of sessions) {
-    const markdown = generateMarkdown(session, username, 'Cursor', options);
-    const filename = formatFilename(session.firstTimestamp, session.id, session.firstUserMessage);
-    await fs.writeFile(path.join(destDir, filename), markdown);
+    try {
+      const markdown = generateMarkdown(session, username, 'Cursor', options);
+      const filename = formatFilename(session.firstTimestamp, session.id, session.firstUserMessage);
+      await fs.writeFile(path.join(destDir, filename), markdown);
+      written++;
+    } catch (e) {
+      logError(`writing Cursor session ${session.id}`, e);
+    }
   }
 
-  log(`   Processed ${sessions.length} sessions`);
+  log(`   Processed ${written}/${sessions.length} sessions`);
 }

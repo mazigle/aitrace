@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { GenerateMarkdownOptions, Session, SessionEntry } from './format.js';
 import { formatFilename, generateMarkdown } from './format.js';
 import { getClaudeProjectDir } from './paths.js';
-import { debug, ensureDir, exists, log } from './utils.js';
+import { debug, ensureDir, exists, log, logError } from './utils.js';
 
 interface ClaudeMessage {
   type: string;
@@ -132,8 +132,10 @@ async function getClaudeSessions(projectPath: string): Promise<Session[]> {
         debug(`Failed to process ${file}: ${(e as Error).message}`);
       }
     }
-  } catch {
-    // Return empty sessions on error
+  } catch (e) {
+    // Surface unexpected errors (permissions, IO) instead of silently hiding
+    // them as "no conversations".
+    logError('reading Claude project directory', e);
   }
 
   return sessions;
@@ -160,11 +162,17 @@ export async function copyClaudeLogs(
     return;
   }
 
+  let written = 0;
   for (const session of sessions) {
-    const markdown = generateMarkdown(session, username, 'Claude Code', options);
-    const filename = formatFilename(session.firstTimestamp, session.id, session.firstUserMessage);
-    await fs.writeFile(path.join(destDir, filename), markdown);
+    try {
+      const markdown = generateMarkdown(session, username, 'Claude Code', options);
+      const filename = formatFilename(session.firstTimestamp, session.id, session.firstUserMessage);
+      await fs.writeFile(path.join(destDir, filename), markdown);
+      written++;
+    } catch (e) {
+      logError(`writing Claude session ${session.id}`, e);
+    }
   }
 
-  log(`   Processed ${sessions.length} sessions`);
+  log(`   Processed ${written}/${sessions.length} sessions`);
 }
